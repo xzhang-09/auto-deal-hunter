@@ -1,0 +1,8 @@
+.env
+.DS_Store
+.venv/
+__pycache__/
+*.pyc
+products_vectorstore/
+*.pth
+memory.json

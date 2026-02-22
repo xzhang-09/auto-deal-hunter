@@ -1,0 +1,22 @@
+[project]
+name = "auto-deal-hunter"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "beautifulsoup4>=4.14.2",
+    "chromadb>=1.1.0",
+    "datasets>=3.0.0",
+    "feedparser>=6.0.12",
+    "gradio>=5.0,<6.0",
+    "litellm>=1.77.0",
+    "mcp[cli]>=1.2.0",
+    "numpy>=2.0.0",
+    "openai>=1.50.0",
+    "plotly>=6.0.0",
+    "pydantic>=2.0.0",
+    "python-dotenv>=1.1.0",
+    "requests>=2.32.0",
+    "scikit-learn>=1.5.0",
+    "sentence-transformers>=3.0.0",
+    "tqdm>=4.67.0",
+]
