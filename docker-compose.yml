@@ -1,0 +1,11 @@
+services:
+  auto-deal-hunter:
+    build: .
+    image: auto-deal-hunter:latest
+    env_file:
+      - .env
+    ports:
+      - "7860:7860"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
