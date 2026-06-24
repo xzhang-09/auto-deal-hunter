@@ -18,7 +18,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from agents.scanner_agent import ScannerAgent
 from agents.frontier_agent import FrontierAgent
-from agents.ensemble_agent import EnsembleAgent
 from agents.messaging_agent import MessagingAgent
 from app.paths import DEFAULT_VECTORSTORE_PATH, ensure_data_dirs
 from models.deals import Deal, Opportunity
@@ -26,24 +25,25 @@ from models.deals import Deal, Opportunity
 mcp = FastMCP("deal-hunter", log_level="WARNING")
 
 DB_PATH = os.getenv("PRODUCTS_VECTORSTORE_PATH") or str(DEFAULT_VECTORSTORE_PATH)
-USE_SPECIALIST = os.getenv("USE_SPECIALIST", "false").lower() == "true"
+_AGENTS_CACHE = None
 
 
 def _get_agents():
+    global _AGENTS_CACHE
+    if _AGENTS_CACHE is not None:
+        return _AGENTS_CACHE
+
     import chromadb
 
     ensure_data_dirs()
     client = chromadb.PersistentClient(path=DB_PATH)
     collection = client.get_or_create_collection("products")
-    if USE_SPECIALIST:
-        estimator = EnsembleAgent(collection)
-    else:
-        estimator = FrontierAgent(collection)
-    return {
+    _AGENTS_CACHE = {
         "scanner": ScannerAgent(),
-        "estimator": estimator,
+        "estimator": FrontierAgent(collection),
         "messenger": MessagingAgent(),
     }
+    return _AGENTS_CACHE
 
 
 @mcp.tool()
@@ -54,7 +54,7 @@ def scan_deals(memory_json: str = "[]") -> str:
     try:
         memory_data = json.loads(memory_json) if memory_json else []
         memory = [
-            Opportunity(deal=Deal(**o["deal"]), estimate=o["estimate"], discount=o["discount"])
+            Opportunity(deal=Deal(**o["deal"]), estimate=o["estimate"])
             for o in memory_data
         ]
     except Exception:
@@ -67,7 +67,7 @@ def scan_deals(memory_json: str = "[]") -> str:
 
 @mcp.tool()
 def estimate_value(description: str) -> str:
-    """Estimate the true market value of a product from its description (RAG + optional fine-tuned Specialist)."""
+    """Estimate the true market value of a product from its description (RAG + GPT-4o-mini)."""
     agents = _get_agents()
     estimate = agents["estimator"].price(description)
     return f"The estimated true value of this product is ${estimate:.2f}"
@@ -81,6 +81,11 @@ def notify_deal(
     url: str,
 ) -> str:
     """Send a push notification about a compelling deal. Call once per run for the best deal."""
+    if estimated_true_value <= deal_price:
+        raise ValueError(
+            f"Estimated value (${estimated_true_value:.2f}) is not above "
+            f"the deal price (${deal_price:.2f}) - this is not a compelling deal."
+        )
     agents = _get_agents()
     agents["messenger"].notify(description, deal_price, estimated_true_value, url)
     return "Notification sent successfully"

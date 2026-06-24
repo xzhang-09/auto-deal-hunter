@@ -1,45 +1,91 @@
 """
-Build ChromaDB vector store from HuggingFace items dataset.
-Uses train split only (excludes val/test) to avoid data leakage during evaluation.
-Run once before using the agent. Requires HF_TOKEN in .env.
+Build ChromaDB vector store from McAuley-Lab/Amazon-Reviews-2023 (Electronics category).
+Independent of DealNews: gives the LLM real Amazon listing prices to reason from,
+instead of letting it guess a price from memorized training data.
+Run once before using the agent. Holds out a sample for eval_pricers.py to avoid data leakage.
 """
+import json
 import os
+import random
 import sys
 from pathlib import Path
-from dotenv import load_dotenv
-from huggingface_hub import login
+
 import chromadb
+from dotenv import load_dotenv
+from huggingface_hub import HfApi, hf_hub_download
+import pyarrow.parquet as pq
 from sentence_transformers import SentenceTransformer
 from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.paths import DEFAULT_VECTORSTORE_PATH, ensure_data_dirs
+from app.config import EMBEDDING_MODEL
+from app.paths import DEFAULT_EVAL_HOLDOUT_PATH, DEFAULT_VECTORSTORE_PATH, ensure_data_dirs
 from models.items import Item
 
 load_dotenv(override=True)
 
+DATASET = "McAuley-Lab/Amazon-Reviews-2023"
+CATEGORY = os.getenv("MCAULEY_CATEGORY", "Electronics")
 DB_PATH = os.getenv("PRODUCTS_VECTORSTORE_PATH", str(DEFAULT_VECTORSTORE_PATH))
-LITE_MODE = os.getenv("LITE_MODE", "true").lower() == "true"
+MAX_ITEMS = int(os.getenv("MCAULEY_MAX_ITEMS", "50000"))
+HOLDOUT_SIZE = int(os.getenv("EVAL_HOLDOUT_SIZE", "500"))
+SEED = 42
+
+
+def fetch_items() -> list[Item]:
+    api = HfApi()
+    files = api.list_repo_files(DATASET, repo_type="dataset")
+    shards = sorted(f for f in files if f.startswith(f"raw_meta_{CATEGORY}/") and f.endswith(".parquet"))
+    if not shards:
+        raise RuntimeError(f"No parquet shards found for category {CATEGORY}")
+    print(f"Found {len(shards)} shard(s) for {CATEGORY}")
+
+    items = []
+    for shard in tqdm(shards, desc="Downloading shards"):
+        path = hf_hub_download(DATASET, shard, repo_type="dataset")
+        table = pq.read_table(path, columns=["title", "main_category", "price", "description"])
+        for row in table.to_pylist():
+            item = Item.from_mcauley_row(row)
+            if item:
+                items.append(item)
+    print(f"Loaded {len(items)} items with valid price")
+    return items
 
 
 def main():
     ensure_data_dirs()
-    login(token=os.environ.get("HF_TOKEN", ""))
-    dataset = os.getenv("ITEMS_DATASET") or ("ed-donner/items_lite" if LITE_MODE else "ed-donner/items_full")
-    train, val, test = Item.from_hub(dataset)
-    items = train  # Only train, to avoid data leakage when evaluating on test
-    print(f"Loaded {len(items)} items (train only, excludes val/test for fair eval)")
+    items = fetch_items()
+
+    random.seed(SEED)
+    random.shuffle(items)
+
+    holdout, items = items[:HOLDOUT_SIZE], items[HOLDOUT_SIZE:]
+    if len(items) > MAX_ITEMS:
+        items = items[:MAX_ITEMS]
+    print(f"Using {len(items)} items for vector store, {len(holdout)} held out for eval")
+
+    with open(DEFAULT_EVAL_HOLDOUT_PATH, "w") as f:
+        json.dump([item.model_dump() for item in holdout], f, indent=2)
 
     client = chromadb.PersistentClient(path=DB_PATH)
-    collection = client.get_or_create_collection("products")
+    try:
+        client.delete_collection("products")
+    except Exception:
+        pass
+    # Stamp the embedding model into the collection so the query path (FrontierAgent) can
+    # refuse to query a store built with a different, vector-space-incompatible embedder.
+    collection = client.create_collection("products", metadata={"embedding_model": EMBEDDING_MODEL})
 
-    encoder = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+    encoder = SentenceTransformer(EMBEDDING_MODEL)
+    # encode_batch_size stays small: large single batches are ~25x slower on MPS (Apple GPU)
+    # than CPU due to backend overhead, even though MPS wins at small batch sizes.
+    encode_batch_size = 64
     batch_size = 1000
-    for i in tqdm(range(0, len(items), batch_size)):
+    for i in tqdm(range(0, len(items), batch_size), desc="Embedding"):
         batch = items[i : i + batch_size]
-        documents = [item.summary or item.title for item in batch]
-        vectors = encoder.encode(documents).astype(float).tolist()
+        documents = [item.summary for item in batch]
+        vectors = encoder.encode(documents, batch_size=encode_batch_size).astype(float).tolist()
         metadatas = [{"category": item.category, "price": item.price} for item in batch]
         ids = [f"doc_{j}" for j in range(i, min(i + batch_size, len(items)))]
         collection.add(ids=ids, documents=documents, embeddings=vectors, metadatas=metadatas)

@@ -1,5 +1,7 @@
 import os
 from agents.agent import Agent
+from app.config import LLM_MODEL, LLM_TEMPERATURE
+from app import usage
 from litellm import completion
 from models.deals import Opportunity
 import requests
@@ -10,7 +12,7 @@ PUSHOVER_URL = "https://api.pushover.net/1/messages.json"
 class MessagingAgent(Agent):
     name = "Messaging Agent"
     color = Agent.WHITE
-    MODEL = "gpt-4o-mini"
+    MODEL = LLM_MODEL
 
     def __init__(self):
         self.log("Initializing")
@@ -27,7 +29,11 @@ class MessagingAgent(Agent):
             "sound": "cashregister",
         }
         if self.pushover_user and self.pushover_token:
-            requests.post(PUSHOVER_URL, data=payload)
+            try:
+                response = requests.post(PUSHOVER_URL, data=payload, timeout=10)
+                response.raise_for_status()
+            except requests.RequestException as exc:
+                self.log(f"Pushover notification failed: {exc}")
         else:
             self.log("Pushover not configured - logging instead")
             self.log(text[:200])
@@ -52,7 +58,9 @@ class MessagingAgent(Agent):
         response = completion(
             model=self.MODEL,
             messages=[{"role": "user", "content": prompt}],
+            temperature=LLM_TEMPERATURE,
         )
+        usage.TRACKER.record(self.MODEL, getattr(response, "usage", None))
         return response.choices[0].message.content
 
     def notify(

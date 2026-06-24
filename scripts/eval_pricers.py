@@ -1,9 +1,12 @@
 """
-One-shot evaluation of price estimators (Frontier, Specialist, Ensemble).
-Uses util.evaluate with pricer-data test set. Requires build_vector_store.py and build_pricer_data.py.
+Evaluate FrontierAgent's price estimation accuracy on the McAuley holdout sample
+produced by build_vector_store.py. The holdout items are excluded from the vector
+store, so this measures genuine RAG generalization rather than exact-match lookup.
 """
 import argparse
+import json
 import logging
+import math
 import os
 import sys
 from pathlib import Path
@@ -12,163 +15,131 @@ from dotenv import load_dotenv
 
 load_dotenv(override=True)
 
-# Suppress agent logging during eval
 logging.getLogger().setLevel(logging.WARNING)
 for _ in ["agents", "chromadb", "httpx", "openai"]:
     logging.getLogger(_).setLevel(logging.WARNING)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-
-def _extract_description(datapoint: dict) -> str:
-    """Extract product description from pricer-data prompt format."""
-    prompt = datapoint.get("prompt", "")
-    parts = prompt.split("\n\nPrice is $")
-    if len(parts) < 2:
-        return prompt
-    before = parts[0]
-    # Skip "What does this cost to the nearest dollar?"
-    idx = before.find("\n\n")
-    return before[idx + 2 :].strip() if idx >= 0 else before
+from app.paths import DEFAULT_EVAL_HOLDOUT_PATH, DEFAULT_VECTORSTORE_PATH
 
 
-def _load_test_data(dataset_name: str):
-    from datasets import load_dataset
-
-    dataset = load_dataset(dataset_name)
-    test = dataset.get("test") or dataset.get("validation") or dataset["train"]
-    # Ensure prompt/completion columns
-    if "prompt" not in test.column_names or "completion" not in test.column_names:
-        raise ValueError(
-            f"Dataset {dataset_name} must have 'prompt' and 'completion' columns. "
-            "Run build_pricer_data.py first."
-        )
-    return test
+def load_holdout(path: str, size: int) -> list[dict]:
+    with open(path) as f:
+        data = json.load(f)
+    return data[:size]
 
 
-def _get_collection():
+def get_collection(db_path: str):
     import chromadb
-    from app.paths import DEFAULT_VECTORSTORE_PATH
 
-    db_path = os.getenv("PRODUCTS_VECTORSTORE_PATH", str(DEFAULT_VECTORSTORE_PATH))
-    if not os.path.isdir(db_path):
-        raise FileNotFoundError(
-            f"Vector store not found at {db_path}. Run build_vector_store.py first."
-        )
     client = chromadb.PersistentClient(path=db_path)
     return client.get_or_create_collection("products")
 
 
-def _frontier_predict(collection):
-    from agents.frontier_agent import FrontierAgent
+def summarize(guesses: list[float], truths: list[float]) -> dict[str, float]:
+    """Accuracy plus bias diagnostics against ground-truth prices.
 
-    agent = FrontierAgent(collection)
+    MAE/RMSE measure raw accuracy; `bias` (mean signed error) and `over_rate` (share of
+    estimates above the truth) expose directional bias. A pricer that systematically
+    over-predicts is the root cause behind estimates exceeding a deal's list price, so
+    these are the metrics to watch when calibrating."""
+    n = len(guesses)
+    if n == 0:
+        raise ValueError("summarize() requires at least one (guess, truth) pair")
+    abs_errors = [abs(g - t) for g, t in zip(guesses, truths)]
+    signed_errors = [g - t for g, t in zip(guesses, truths)]
+    return {
+        "n": n,
+        "mae": sum(abs_errors) / n,
+        "rmse": math.sqrt(sum(e * e for e in abs_errors) / n),
+        "bias": sum(signed_errors) / n,
+        "over_rate": sum(1 for s in signed_errors if s > 0) / n,
+    }
 
-    def predict(datapoint):
-        return agent.price(_extract_description(datapoint))
 
-    return predict
-
-
-def _specialist_predict():
-    from agents.specialist_agent import SpecialistAgent
-
-    agent = SpecialistAgent()
-
-    def predict(datapoint):
-        return agent.price(_extract_description(datapoint))
-
-    return predict
+def format_summary_line(stats: dict[str, float]) -> str:
+    bias = stats["bias"]
+    bias_str = f"{'+' if bias >= 0 else '-'}${abs(bias):,.2f}"
+    return (
+        f"MAE: ${stats['mae']:,.2f}   RMSE: ${stats['rmse']:,.2f}   "
+        f"Bias: {bias_str}   Over-prediction: {stats['over_rate']:.0%}   n={stats['n']}"
+    )
 
 
-def _ensemble_predict(collection):
-    from agents.ensemble_agent import EnsembleAgent
-
-    agent = EnsembleAgent(collection)
-
-    def predict(datapoint):
-        return agent.price(_extract_description(datapoint))
-
-    return predict
+def threshold_violations(
+    stats: dict[str, float],
+    max_mae: float | None = None,
+    max_abs_bias: float | None = None,
+    max_over_rate: float | None = None,
+) -> list[str]:
+    violations = []
+    if max_mae is not None and stats["mae"] > max_mae:
+        violations.append(f"mae {stats['mae']:.2f} > max_mae {max_mae:.2f}")
+    if max_abs_bias is not None and abs(stats["bias"]) > max_abs_bias:
+        violations.append(
+            f"abs(bias) {abs(stats['bias']):.2f} > max_abs_bias {max_abs_bias:.2f}"
+        )
+    if max_over_rate is not None and stats["over_rate"] > max_over_rate:
+        violations.append(
+            f"over_rate {stats['over_rate']:.2f} > max_over_rate {max_over_rate:.2f}"
+        )
+    return violations
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Evaluate price estimators on pricer-data test set."
+        description="Evaluate FrontierAgent (RAG + GPT-4o-mini) on held-out McAuley items."
     )
     parser.add_argument(
-        "--agents",
-        choices=["frontier", "specialist", "ensemble", "all"],
-        default="frontier",
-        help="Which agent(s) to evaluate. 'all' runs frontier, specialist, ensemble.",
+        "--size", type=int, default=200, help="Number of holdout samples to evaluate (default: 200)."
     )
-    parser.add_argument(
-        "--size",
-        type=int,
-        default=200,
-        help="Number of test samples (default: 200).",
-    )
-    parser.add_argument(
-        "--dataset",
-        type=str,
-        default=None,
-        help="HuggingFace dataset name (default: {HF_USER}/pricer-data).",
-    )
+    parser.add_argument("--output-json", help="Optional path to write aggregate metrics as JSON.")
+    parser.add_argument("--max-mae", type=float, help="Fail when MAE exceeds this value.")
+    parser.add_argument("--max-abs-bias", type=float, help="Fail when absolute bias exceeds this value.")
+    parser.add_argument("--max-over-rate", type=float, help="Fail when over-prediction rate exceeds this value.")
     args = parser.parse_args()
 
-    hf_user = os.getenv("HF_USER", "ed-donner")
-    dataset_name = args.dataset or os.getenv("PRICER_DATASET") or f"{hf_user}/pricer-data"
+    holdout_path = os.getenv("EVAL_HOLDOUT_PATH", str(DEFAULT_EVAL_HOLDOUT_PATH))
+    if not os.path.exists(holdout_path):
+        raise FileNotFoundError(f"No holdout file at {holdout_path}. Run build_vector_store.py first.")
 
-    print(f"Loading test data from {dataset_name}...")
-    test = _load_test_data(dataset_name)
-    size = min(args.size, len(test))
-    print(f"Evaluating on {size} samples.\n")
+    items = load_holdout(holdout_path, args.size)
+    print(f"Evaluating on {len(items)} held-out items.\n")
 
-    agents_to_run = []
-    if args.agents == "all":
-        agents_to_run = ["frontier", "specialist", "ensemble"]
-    else:
-        agents_to_run = [args.agents]
+    db_path = os.getenv("PRODUCTS_VECTORSTORE_PATH", str(DEFAULT_VECTORSTORE_PATH))
+    collection = get_collection(db_path)
 
-    collection = None
-    if "frontier" in agents_to_run or "ensemble" in agents_to_run:
-        collection = _get_collection()
+    from agents.frontier_agent import FrontierAgent
 
-    from scripts.util import evaluate
+    agent = FrontierAgent(collection)
 
-    for agent_name in agents_to_run:
-        if agent_name == "frontier":
-            print("=" * 60)
-            print("Evaluating Frontier Agent (RAG + GPT-4o-mini)")
-            print("=" * 60)
-            pred = _frontier_predict(collection)
-            evaluate(pred, test, size=size)
+    guesses = []
+    truths = []
+    for item in items:
+        guess = agent.price(item["summary"])
+        truth = item["price"]
+        guesses.append(guess)
+        truths.append(truth)
+        print(f"  guess=${guess:,.2f}  truth=${truth:,.2f}  error=${abs(guess - truth):,.2f}  {item['title'][:50]}")
 
-        elif agent_name == "specialist":
-            print("=" * 60)
-            print("Evaluating Specialist Agent (Fine-tuned on Modal)")
-            print("=" * 60)
-            try:
-                pred = _specialist_predict()
-                evaluate(pred, test, size=size)
-            except Exception as e:
-                print(
-                    f"Skipping Specialist: {e}\n"
-                    "Ensure modal deploy pricer_service.py and USE_SPECIALIST is set."
-                )
+    stats = summarize(guesses, truths)
+    print(f"\n{format_summary_line(stats)}")
+    from app import usage
 
-        elif agent_name == "ensemble":
-            print("=" * 60)
-            print("Evaluating Ensemble Agent (Frontier 80% + Specialist 20%)")
-            print("=" * 60)
-            try:
-                pred = _ensemble_predict(collection)
-                evaluate(pred, test, size=size)
-            except Exception as e:
-                print(
-                    f"Skipping Ensemble: {e}\n"
-                    "Ensure modal deploy pricer_service.py and USE_SPECIALIST is set."
-                )
+    print(usage.TRACKER.report())
+    if args.output_json:
+        with open(args.output_json, "w") as f:
+            json.dump(stats, f, indent=2)
+
+    violations = threshold_violations(
+        stats,
+        max_mae=args.max_mae,
+        max_abs_bias=args.max_abs_bias,
+        max_over_rate=args.max_over_rate,
+    )
+    if violations:
+        raise SystemExit("Evaluation thresholds failed: " + "; ".join(violations))
 
 
 if __name__ == "__main__":
