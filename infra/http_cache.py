@@ -15,9 +15,10 @@ import logging
 import os
 import sqlite3
 import time
+from contextlib import contextmanager
 from typing import Optional
 
-from app.paths import DATA_DIR
+from infra.paths import DATA_DIR
 
 DEFAULT_TTL_SECONDS = 6 * 60 * 60  # deal prices move slowly; 6h is a safe default
 _CACHE_PATH = DATA_DIR / "http_cache.sqlite"
@@ -36,12 +37,22 @@ def _connect() -> sqlite3.Connection:
     return conn
 
 
+@contextmanager
+def _connection():
+    conn = _connect()
+    try:
+        yield conn
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def read(url: str, ttl: float = DEFAULT_TTL_SECONDS) -> Optional[bytes]:
     """Return cached page bytes for ``url`` when present and fresher than ``ttl``, else None."""
     if not _enabled():
         return None
     try:
-        with _connect() as conn:
+        with _connection() as conn:
             row = conn.execute("SELECT fetched_at, body FROM pages WHERE url = ?", (url,)).fetchone()
     except sqlite3.Error as exc:
         logging.debug("http_cache read failed: %s", exc)
@@ -59,7 +70,7 @@ def write(url: str, body: bytes) -> None:
     if not _enabled():
         return
     try:
-        with _connect() as conn:
+        with _connection() as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO pages (url, fetched_at, body) VALUES (?, ?, ?)",
                 (url, time.time(), body),

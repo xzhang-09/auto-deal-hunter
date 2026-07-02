@@ -11,12 +11,14 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt ./
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r requirements.txt
+COPY pyproject.toml ./
+RUN pip install --no-cache-dir --upgrade pip
 
 COPY . .
 
+# Install the project and its dependencies declared in pyproject.toml.
+RUN pip install --no-cache-dir -e .
+
 EXPOSE 7860
 
-CMD ["python", "app/deal_hunter.py"]
+CMD ["python", "-m", "app.ui"]

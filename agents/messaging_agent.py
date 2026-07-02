@@ -1,9 +1,9 @@
 import os
 from agents.agent import Agent
-from app.config import LLM_MODEL, LLM_TEMPERATURE
-from app import usage
-from litellm import completion
-from models.deals import Opportunity
+from infra.config import LLM_MAX_RETRIES, LLM_MODEL, LLM_TEMPERATURE
+from infra import usage
+from openai import OpenAI
+from domain.deal import Opportunity
 import requests
 
 PUSHOVER_URL = "https://api.pushover.net/1/messages.json"
@@ -16,6 +16,7 @@ class MessagingAgent(Agent):
 
     def __init__(self):
         self.log("Initializing")
+        self.client = OpenAI(max_retries=LLM_MAX_RETRIES)
         self.pushover_user = os.getenv("PUSHOVER_USER", "")
         self.pushover_token = os.getenv("PUSHOVER_TOKEN", "")
         self.log("Ready")
@@ -55,7 +56,7 @@ class MessagingAgent(Agent):
             f"Item: {description}\nPrice: {deal_price}\nEst. value: {estimated_true_value}\n"
             "Respond only with the message."
         )
-        response = completion(
+        response = self.client.chat.completions.create(
             model=self.MODEL,
             messages=[{"role": "user", "content": prompt}],
             temperature=LLM_TEMPERATURE,

@@ -1,7 +1,7 @@
 import types
 import unittest
 
-from app.usage import PRICING, UsageTracker
+from infra.usage import PRICING, UsageTracker
 
 
 class UsageTrackerTests(unittest.TestCase):
@@ -24,6 +24,23 @@ class UsageTrackerTests(unittest.TestCase):
         tracker = UsageTracker()
         tracker.record("some-unknown-model", types.SimpleNamespace(prompt_tokens=10, completion_tokens=5))
         self.assertIn("no price for", tracker.report())
+
+    def test_merge_folds_in_external_usage(self):
+        # Simulates the client merging the MCP server subprocess's token totals into the
+        # orchestrator's tracker. The orchestration loop's own call is recorded normally;
+        # the subprocess's bulk usage arrives via merge() and must be summed in.
+        tracker = UsageTracker()
+        tracker.record("gpt-4o-mini", types.SimpleNamespace(prompt_tokens=100, completion_tokens=20))
+        tracker.merge(prompt_tokens=900, completion_tokens=180, calls=7)
+        self.assertEqual(tracker.prompt_tokens, 1000)
+        self.assertEqual(tracker.completion_tokens, 200)
+        # 1 orchestration call + 7 batched subprocess calls.
+        self.assertEqual(tracker.calls, 8)
+
+    def test_merge_propagates_unpriced_models(self):
+        tracker = UsageTracker()
+        tracker.merge(prompt_tokens=10, completion_tokens=5, calls=1, unpriced_models=["mystery-model"])
+        self.assertIn("no price for: mystery-model", tracker.report())
 
     def test_reset_clears_counters(self):
         tracker = UsageTracker()

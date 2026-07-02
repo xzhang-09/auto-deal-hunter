@@ -1,19 +1,20 @@
 import logging
 
+from infra.log_utils import BG_BLACK, BLUE, CYAN, RESET, WHITE
+
 
 class Agent:
-    RED = "\033[31m"
-    GREEN = "\033[32m"
-    YELLOW = "\033[33m"
-    BLUE = "\033[34m"
-    MAGENTA = "\033[35m"
-    CYAN = "\033[36m"
-    WHITE = "\033[37m"
-    BG_BLACK = "\033[40m"
-    RESET = "\033[0m"
+    # ANSI codes are defined once in infra.log_utils (which also maps each to a hex color for
+    # the Gradio log panel, so the two can never drift apart). Re-exported here as class
+    # attributes for subclasses to select via ``color = Agent.CYAN`` etc.
+    BLUE = BLUE
+    CYAN = CYAN
+    WHITE = WHITE
+    BG_BLACK = BG_BLACK
+    RESET = RESET
 
     name: str = ""
-    color: str = "\033[37m"
+    color: str = WHITE
 
     def log(self, message: str):
         color_code = self.BG_BLACK + self.color

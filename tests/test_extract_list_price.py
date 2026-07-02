@@ -2,7 +2,7 @@ import unittest
 
 from bs4 import BeautifulSoup
 
-from models.deals import extract_callout_prices, extract_list_price
+from ingest.list_price import extract_callout_prices, extract_list_price
 
 
 class CalloutPriceTests(unittest.TestCase):

@@ -14,13 +14,12 @@ from openai import OpenAI
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-
-from app.config import LLM_MODEL, LLM_SEED, LLM_TEMPERATURE
-from app.deal_scoring import best_opportunity
-from app.paths import DEFAULT_VECTORSTORE_PATH, PROJECT_ROOT
-from app import usage
-from models.deals import Deal, Opportunity, deal_id
+from infra.config import LLM_MAX_RETRIES, LLM_MODEL, LLM_SEED, LLM_TEMPERATURE
+from core.scoring import best_opportunity
+from core.source_ids import deal_id
+from infra.paths import DEFAULT_VECTORSTORE_PATH, PROJECT_ROOT
+from infra import usage
+from domain.deal import Deal, Opportunity
 
 load_dotenv(override=True)
 
@@ -28,9 +27,25 @@ MODEL = LLM_MODEL
 MAX_AGENT_STEPS = 8
 _ESTIMATE_RE = re.compile(r"\$\s*([0-9][0-9,]*(?:\.[0-9]+)?)")
 SYSTEM_MSG = "You find great deals using your tools and notify the user of the best bargain."
-USER_MSG = """First, scan for bargain deals. Then for each deal, estimate its true value.
+USER_MSG = """First, scan for bargain deals. Then for each deal, estimate its true value,
+passing that deal's url to the estimate tool along with its description.
 Pick the single most compelling deal (price much lower than estimated value) and notify the user.
 Then reply OK to indicate success."""
+
+
+def _mcp_server_params() -> StdioServerParameters:
+    env = dict(os.environ)
+    env.setdefault("PRODUCTS_VECTORSTORE_PATH", str(DEFAULT_VECTORSTORE_PATH))
+    existing_pythonpath = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = (
+        f"{PROJECT_ROOT}:{existing_pythonpath}" if existing_pythonpath else str(PROJECT_ROOT)
+    )
+    return StdioServerParameters(
+        command=sys.executable,
+        args=[str(PROJECT_ROOT / "app" / "mcp_server.py")],
+        cwd=str(PROJECT_ROOT),
+        env=env,
+    )
 
 
 def mcp_tool_to_openai(mcp_tool) -> dict:
@@ -53,19 +68,31 @@ def _parse_estimate(result_text: str) -> float | None:
 
 
 def candidate_from_estimate(
-    description: str, estimate: float, scanned_deals_by_url: dict
+    description: str, estimate: float, scanned_deals_by_url: dict, url: str | None = None
 ) -> Opportunity | None:
     """Pair an estimate_value result back to the scanned deal it was run on.
 
     The agent estimates each scanned deal; we re-key those estimates to the deal's price
-    and list_price so a deterministic ranking (not the model) can pick the winner. Matching
-    is by exact product_description, which is what scan_deals handed the model; if the model
-    paraphrased the description we can't pair it and skip the candidate (falling back to the
-    model's own notify choice)."""
-    deal = next(
-        (d for d in scanned_deals_by_url.values() if d.get("product_description") == description),
-        None,
-    )
+    and list_price so a deterministic ranking (not the model) can pick the winner. Pairing
+    prefers the deal's ``url`` (matched by stable product id, robust to the model echoing a
+    different slug/query), which the estimate_value tool now asks the model to pass. Exact
+    product_description matching is kept only as a fallback for the pre-url calling convention;
+    if neither pairs, the candidate is skipped (falling back to the model's own notify choice).
+    """
+    deal = None
+    if url:
+        deal = scanned_deals_by_url.get(url)
+        if deal is None:
+            target_id = deal_id(url)
+            deal = next(
+                (d for d in scanned_deals_by_url.values() if deal_id(d.get("url", "")) == target_id),
+                None,
+            )
+    if deal is None:
+        deal = next(
+            (d for d in scanned_deals_by_url.values() if d.get("product_description") == description),
+            None,
+        )
     if deal is None:
         return None
     return Opportunity(
@@ -74,6 +101,7 @@ def candidate_from_estimate(
             price=deal["price"],
             list_price=deal.get("list_price"),
             url=deal["url"],
+            quantity=deal.get("quantity", 1),
         ),
         estimate=estimate,
     )
@@ -95,20 +123,14 @@ def opportunity_from_notify_args(args: dict, scanned_deals_by_url: dict) -> Oppo
             price=args["deal_price"],
             list_price=scanned_deal.get("list_price"),
             url=args["url"],
+            quantity=scanned_deal.get("quantity", 1),
         ),
         estimate=args["estimated_true_value"],
     )
 
 
 async def run_agent(memory: list) -> tuple[list, Opportunity | None]:
-    env = dict(os.environ)
-    env.setdefault("PRODUCTS_VECTORSTORE_PATH", str(DEFAULT_VECTORSTORE_PATH))
-    server_params = StdioServerParameters(
-        command=sys.executable,
-        args=[str(PROJECT_ROOT / "app" / "mcp_server.py")],
-        cwd=str(PROJECT_ROOT),
-        env=env,
-    )
+    server_params = _mcp_server_params()
 
     memory_data = [o.model_dump() for o in memory]
     opportunity = None
@@ -119,9 +141,14 @@ async def run_agent(memory: list) -> tuple[list, Opportunity | None]:
         async with ClientSession(read_stream, write_stream) as session:
             await session.initialize()
             tools_result = await session.list_tools()
-            openai_tools = [mcp_tool_to_openai(t) for t in tools_result.tools]
+            # get_run_usage is operator telemetry, not a deal-hunting capability: keep it out
+            # of the tool list shown to the LLM so it never appears in model context, then call
+            # it directly (below) once the agent loop is done.
+            openai_tools = [
+                mcp_tool_to_openai(t) for t in tools_result.tools if t.name != "get_run_usage"
+            ]
 
-            client = OpenAI()
+            client = OpenAI(max_retries=LLM_MAX_RETRIES)
             messages = [
                 {"role": "system", "content": SYSTEM_MSG},
                 {"role": "user", "content": USER_MSG},
@@ -175,7 +202,10 @@ async def run_agent(memory: list) -> tuple[list, Opportunity | None]:
                             estimate = _parse_estimate(content)
                             if estimate is not None:
                                 candidate = candidate_from_estimate(
-                                    args.get("description", ""), estimate, scanned_deals_by_url
+                                    args.get("description", ""),
+                                    estimate,
+                                    scanned_deals_by_url,
+                                    args.get("url"),
                                 )
                                 if candidate is not None:
                                     candidates[deal_id(candidate.deal.url)] = candidate
@@ -188,6 +218,29 @@ async def run_agent(memory: list) -> tuple[list, Opportunity | None]:
                     break
             else:
                 raise RuntimeError(f"Agent exceeded {MAX_AGENT_STEPS} tool-call steps")
+
+            # Pull the server subprocess's accumulated token usage into this process's
+            # tracker. The work agents (scanner/pricer/messenger) execute inside the MCP
+            # server process and record to a *separate* usage.TRACKER there; without this
+            # merge the orchestrator's cost report would miss the bulk of the spend (only the
+            # orchestration loop above records into this process). Best-effort: a failure here
+            # must not sink an otherwise successful run.
+            try:
+                usage_result = await session.call_tool("get_run_usage", {})
+                usage_text = "".join(
+                    block.text
+                    for block in (usage_result.content or [])
+                    if hasattr(block, "text")
+                )
+                server_usage = json.loads(usage_text or "{}")
+                usage.TRACKER.merge(
+                    prompt_tokens=server_usage.get("prompt_tokens", 0),
+                    completion_tokens=server_usage.get("completion_tokens", 0),
+                    calls=server_usage.get("calls", 0),
+                    unpriced_models=server_usage.get("unpriced_models", ()),
+                )
+            except Exception as exc:
+                logging.warning("Could not collect MCP server usage: %s", exc)
 
     # Deterministic selection: the model gathers candidates, but the single best deal is
     # chosen by a reproducible max over the list-price-capped discount, not model judgment.

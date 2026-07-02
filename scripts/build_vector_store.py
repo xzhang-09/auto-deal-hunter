@@ -7,8 +7,6 @@ Run once before using the agent. Holds out a sample for eval_pricers.py to avoid
 import json
 import os
 import random
-import sys
-from pathlib import Path
 
 import chromadb
 from dotenv import load_dotenv
@@ -17,11 +15,11 @@ import pyarrow.parquet as pq
 from sentence_transformers import SentenceTransformer
 from tqdm import tqdm
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from app.config import EMBEDDING_MODEL
-from app.paths import DEFAULT_EVAL_HOLDOUT_PATH, DEFAULT_VECTORSTORE_PATH, ensure_data_dirs
-from models.items import Item
+from infra.config import EMBEDDING_MODEL, VECTOR_SPACE
+from infra.paths import DEFAULT_EVAL_HOLDOUT_PATH, DEFAULT_VECTORSTORE_PATH, ensure_data_dirs
+from domain.identity import ItemKind
+from domain.item import Item
+from ingest.identity import extract_identity_rule
 
 load_dotenv(override=True)
 
@@ -47,8 +45,18 @@ def fetch_items() -> list[Item]:
         table = pq.read_table(path, columns=["title", "main_category", "price", "description"])
         for row in table.to_pylist():
             item = Item.from_mcauley_row(row)
-            if item:
-                items.append(item)
+            if not item:
+                continue
+            identity = extract_identity_rule(item.summary)
+            if identity is not None:
+                # Bundles/subscriptions cannot be valued on a single-unit basis, so they make
+                # misleading comparables (and bad holdout queries); drop them entirely. Keep
+                # multipacks but record the pack size so the query path normalizes to per-unit.
+                if identity.kind in (ItemKind.BUNDLE, ItemKind.SUBSCRIPTION):
+                    continue
+                item.quantity = identity.quantity
+                item.variant = identity.variant
+            items.append(item)
     print(f"Loaded {len(items)} items with valid price")
     return items
 
@@ -73,9 +81,14 @@ def main():
         client.delete_collection("products")
     except Exception:
         pass
-    # Stamp the embedding model into the collection so the query path (FrontierAgent) can
-    # refuse to query a store built with a different, vector-space-incompatible embedder.
-    collection = client.create_collection("products", metadata={"embedding_model": EMBEDDING_MODEL})
+    # Stamp the embedding model AND the distance metric into the collection so the query path
+    # (PricerAgent) can refuse a store built with a different embedder or space. hnsw:space sets
+    # cosine distance (mpnet is tuned for cosine; see infra.config.VECTOR_SPACE); without it
+    # Chroma defaults to L2, which ranks differently and gives un-thresholdable distances.
+    collection = client.create_collection(
+        "products",
+        metadata={"embedding_model": EMBEDDING_MODEL, "hnsw:space": VECTOR_SPACE},
+    )
 
     encoder = SentenceTransformer(EMBEDDING_MODEL)
     # encode_batch_size stays small: large single batches are ~25x slower on MPS (Apple GPU)
@@ -85,8 +98,22 @@ def main():
     for i in tqdm(range(0, len(items), batch_size), desc="Embedding"):
         batch = items[i : i + batch_size]
         documents = [item.summary for item in batch]
-        vectors = encoder.encode(documents, batch_size=encode_batch_size).astype(float).tolist()
-        metadatas = [{"category": item.category, "price": item.price} for item in batch]
+        # normalize_embeddings: store unit vectors so cosine == dot product and distances are
+        # consistent with the (also-normalized) query path. Must stay in sync with find_similars.
+        vectors = (
+            encoder.encode(documents, batch_size=encode_batch_size, normalize_embeddings=True)
+            .astype(float)
+            .tolist()
+        )
+        metadatas = [
+            {
+                "category": item.category,
+                "price": item.price,
+                "quantity": item.quantity,
+                "variant": item.variant or "",
+            }
+            for item in batch
+        ]
         ids = [f"doc_{j}" for j in range(i, min(i + batch_size, len(items)))]
         collection.add(ids=ids, documents=documents, embeddings=vectors, metadatas=metadatas)
 

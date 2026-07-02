@@ -3,13 +3,16 @@
 .venv/
 __pycache__/
 *.pyc
+*.egg-info/
 products_vectorstore/
 *.pth
 memory.json
 data/memory.json
 data/deals.sqlite
 data/deals.sqlite-*
+data/deals.sqlite.backup-*
 data/products_vectorstore/
 data/eval_holdout.json
 data/http_cache.sqlite
 data/http_cache.sqlite-*
+data/eval_metrics.json

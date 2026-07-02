@@ -1,18 +1,17 @@
 import logging
 import os
 import queue
-import sys
 import threading
 import time
 import warnings
+from collections import Counter
 import gradio as gr
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-
-from app.deal_agent_framework import DealAgentFramework
-from app.log_utils import reformat
-from app.paths import DEFAULT_VECTORSTORE_PATH
-from models.deals import Deal, Opportunity
+from app.orchestrator import Orchestrator
+from core.identity_policy import per_unit_note
+from infra.log_utils import reformat
+from infra.paths import DEFAULT_VECTORSTORE_PATH
+from domain.deal import Deal, Opportunity  # noqa: F401  re-exported for tests/UI helpers
 import plotly.graph_objects as go
 from dotenv import load_dotenv
 
@@ -130,26 +129,41 @@ def stats_html(stats: dict) -> str:
             '<div class="setup-warning">⚠ Vector store not built — run '
             "<code>python scripts/build_vector_store.py</code> before scanning.</div>"
         )
+    overestimate_note = ""
+    if not str(stats["overestimates"]).endswith("/0"):
+        overestimate_note = f"Est &gt; list price: {stats['overestimates']}. "
     parts.append(
         f'<div class="section-caption"><b>{stats["opportunities"]} saved deals.</b> '
-        f"Est &gt; list price: {stats['overestimates']}. {OPPORTUNITIES_NOTE}</div>"
+        f"{overestimate_note}{OPPORTUNITIES_NOTE}</div>"
     )
     return "".join(parts)
 
 
 def table_for(opps):
-    return [
-        [
-            opp.deal.product_description,
-            f"${opp.deal.price:.2f}",
-            f"${opp.deal.list_price:.2f}" if opp.deal.list_price else "n/a",
-            f"${opp.estimate:.2f}",
-            f"${opp.discount:.2f}",
-            below_estimate_percent(opp.effective_value, opp.deal.price),
-            f"[View]({opp.deal.url})",
-        ]
-        for opp in opps
-    ]
+    rows = []
+    for opp in opps:
+        quantity = opp.deal.quantity
+        # Show the pack-level prices the user actually pays. The per-unit basis is internal --
+        # used only to value a multipack against per-unit comparables -- so multiply it back by
+        # the pack size for display. (quantity 1 leaves single items exactly as before.)
+        price = opp.deal.price * quantity
+        list_price = opp.deal.list_price * quantity if opp.deal.list_price else None
+        estimate = opp.estimate * quantity
+        description = opp.deal.product_description
+        if quantity > 1:
+            description = description.replace(per_unit_note(quantity), "") + f" ({quantity}-pack)"
+        rows.append(
+            [
+                description,
+                f"${price:.2f}",
+                f"${list_price:.2f}" if list_price else "n/a",
+                f"${estimate:.2f}",
+                f"${opp.total_discount:.2f}",
+                below_estimate_percent(opp.effective_value, opp.deal.price),
+                f"[View]({opp.deal.url})",
+            ]
+        )
+    return rows
 
 
 def setup_logging(log_queue):
@@ -171,7 +185,7 @@ class App:
 
     def get_agent_framework(self):
         if not self.agent_framework:
-            self.agent_framework = DealAgentFramework()
+            self.agent_framework = Orchestrator()
         return self.agent_framework
 
     def run(self):
@@ -209,10 +223,12 @@ class App:
 
             def get_plot():
                 try:
-                    documents, vectors, colors, labels = DealAgentFramework.get_plot_data(max_datapoints=800)
+                    documents, vectors, colors, labels = Orchestrator.get_plot_data(max_datapoints=800)
                     fig = go.Figure()
-                    for label in dict.fromkeys(labels):  # unique, first-seen order
-                        idx = [i for i, l in enumerate(labels) if l == label]
+                    # Legend ordered by point count, biggest group first: readable and stable
+                    # across rebuilds (vs. the arbitrary first-seen order of the raw data).
+                    for label, _ in Counter(labels).most_common():
+                        idx = [i for i, lbl in enumerate(labels) if lbl == label]
                         fig.add_trace(
                             go.Scatter3d(
                                 x=vectors[idx, 0],
@@ -316,7 +332,11 @@ class App:
                     logs = gr.HTML()
                 with gr.Column(scale=1):
                     gr.Markdown("### Product reference map")
-                    plot = gr.Plot(value=get_plot(), show_label=False)
+                    # Rendered lazily via ui.load below: the t-SNE projection is expensive
+                    # (fit over up to 800 vectors) and computing it eagerly here would block
+                    # every page open. Starting empty lets the UI appear immediately and the
+                    # map fill in once the session loads.
+                    plot = gr.Plot(show_label=False)
                     gr.Markdown(REFERENCE_MAP_CAPTION)
 
             def load_memory(initial_log_data):
@@ -333,6 +353,8 @@ class App:
                 inputs=[log_data],
                 outputs=[log_data, status_cards, logs, opportunities_dataframe],
             )
+            # Populate the reference map after the page loads, off the initial render path.
+            ui.load(get_plot, inputs=None, outputs=[plot])
             run_button.click(
                 run_with_logging,
                 inputs=[log_data],

@@ -1,6 +1,6 @@
 import unittest
 
-from scripts import eval_pricers
+from evaluation import pricer as eval_pricers
 
 
 class SummarizeTests(unittest.TestCase):

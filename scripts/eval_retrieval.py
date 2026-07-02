@@ -8,49 +8,21 @@ the held-out item's true price? Cheap (no LLM calls) and diagnostic.
 
 Metrics (averaged over the holdout):
   - category_precision@k : share of the k neighbors in the same category as the query item
-  - price_mape@k         : median-neighbor price vs. true price, mean absolute % error
+  - price_medianAPE@k    : median over queries of |median-neighbor price - true price| / true price
+                           (robust headline; the outlier-sensitive mean APE is also reported)
   - hit_rate@k           : share of queries with >=1 same-category neighbor
 """
 import argparse
 import json
 import os
-import statistics
-import sys
-from pathlib import Path
 
 from dotenv import load_dotenv
 
+from evaluation.retrieval import aggregate, retrieval_metrics
+from infra.config import EMBEDDING_MODEL
+from infra.paths import DEFAULT_EVAL_HOLDOUT_PATH, DEFAULT_VECTORSTORE_PATH
+
 load_dotenv(override=True)
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from app.config import EMBEDDING_MODEL
-from app.paths import DEFAULT_EVAL_HOLDOUT_PATH, DEFAULT_VECTORSTORE_PATH
-
-
-def retrieval_metrics(neighbors: list[dict], item: dict) -> dict[str, float]:
-    """Per-query retrieval metrics given the retrieved neighbor metadatas and the query item."""
-    same_category = [n for n in neighbors if n.get("category") == item["category"]]
-    neighbor_prices = [n["price"] for n in neighbors if n.get("price") is not None]
-    median_price = statistics.median(neighbor_prices) if neighbor_prices else None
-    truth = item["price"]
-    price_ape = abs(median_price - truth) / truth if (median_price is not None and truth) else None
-    return {
-        "category_precision": len(same_category) / len(neighbors) if neighbors else 0.0,
-        "hit": 1.0 if same_category else 0.0,
-        "price_ape": price_ape,
-    }
-
-
-def aggregate(per_query: list[dict[str, float]]) -> dict[str, float]:
-    n = len(per_query)
-    apes = [m["price_ape"] for m in per_query if m["price_ape"] is not None]
-    return {
-        "n": n,
-        "category_precision": sum(m["category_precision"] for m in per_query) / n,
-        "hit_rate": sum(m["hit"] for m in per_query) / n,
-        "price_mape": (sum(apes) / len(apes)) if apes else float("nan"),
-    }
 
 
 def main():
@@ -76,7 +48,8 @@ def main():
 
     per_query = []
     for item in items:
-        vector = encoder.encode([item["summary"]]).astype(float).tolist()
+        # normalize_embeddings to match the build path (unit vectors under cosine distance).
+        vector = encoder.encode([item["summary"]], normalize_embeddings=True).astype(float).tolist()
         results = collection.query(query_embeddings=vector, n_results=args.k)
         neighbors = results["metadatas"][0]
         per_query.append(retrieval_metrics(neighbors, item))
@@ -85,7 +58,8 @@ def main():
     print(
         f"category_precision@{args.k}: {stats['category_precision']:.0%}   "
         f"hit_rate@{args.k}: {stats['hit_rate']:.0%}   "
-        f"price_MAPE@{args.k}: {stats['price_mape']:.0%}   n={stats['n']}"
+        f"price_medianAPE@{args.k}: {stats['price_median_ape']:.0%}   "
+        f"(meanAPE: {stats['price_mape']:.0%})   n={stats['n']}"
     )
     if args.output_json:
         with open(args.output_json, "w") as f:

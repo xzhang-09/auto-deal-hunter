@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import threading
 from dataclasses import dataclass, field
+from typing import Iterable
 
 # USD per 1M tokens (input, output). Keep in sync with the provider price sheet.
 PRICING: dict[str, tuple[float, float]] = {
@@ -41,6 +42,32 @@ class UsageTracker:
             if model not in PRICING:
                 self._unpriced_models.add(model)
 
+    def merge(
+        self,
+        prompt_tokens: int = 0,
+        completion_tokens: int = 0,
+        calls: int = 0,
+        unpriced_models: Iterable[str] = (),
+    ) -> None:
+        """Fold in a batch of usage that was accumulated elsewhere.
+
+        The deal-hunting agents (scanner/pricer/messenger) run inside the MCP server
+        *subprocess*, where they record to a separate UsageTracker instance. The client
+        pulls those totals back via the get_run_usage tool and merges them here so the
+        orchestrator's per-run cost report reflects the full spend, not just the
+        orchestration loop's own calls. Token counts are summed directly (no SDK usage
+        object), and ``calls`` is added as a batch rather than incremented by one."""
+        with self._lock:
+            self.prompt_tokens += prompt_tokens
+            self.completion_tokens += completion_tokens
+            self.calls += calls
+            self._unpriced_models.update(unpriced_models)
+
+    @property
+    def unpriced_models(self) -> list[str]:
+        with self._lock:
+            return sorted(self._unpriced_models)
+
     @property
     def estimated_cost(self) -> float:
         # Cost is approximate: it applies the dominant model's rate uniformly. For a
@@ -69,8 +96,8 @@ class UsageTracker:
 
 
 def LLM_MODEL_FOR_COST() -> str:
-    # Imported lazily to avoid a circular import with app.config at module load.
-    from app.config import LLM_MODEL
+    # Imported lazily to avoid a circular import with infra.config at module load.
+    from infra.config import LLM_MODEL
 
     return LLM_MODEL
 

@@ -2,9 +2,12 @@ import json
 from typing import Optional, List
 from openai import OpenAI
 from agents.agent import Agent
-from app.config import LLM_MODEL, LLM_SEED, LLM_TEMPERATURE
-from app import usage
-from models.deals import ScrapedDeal, DealSelection, deal_id
+from infra.config import LLM_MAX_RETRIES, LLM_MODEL, LLM_SEED, LLM_TEMPERATURE
+from infra import usage
+from core.identity_policy import per_unit_fields
+from core.source_ids import deal_id
+from domain.deal import DealSelection
+from ingest.scraper import ScrapedDeal
 
 
 class ScannerAgent(Agent):
@@ -29,7 +32,7 @@ Deals:
 
     def __init__(self):
         self.log("Initializing")
-        self.openai = OpenAI()
+        self.openai = OpenAI(max_retries=LLM_MAX_RETRIES)
         self.log("Ready")
 
     def fetch_deals(self, memory) -> List[ScrapedDeal]:
@@ -89,5 +92,14 @@ Deals:
             source = scraped_by_id.get(deal_id(deal.url))
             if source is not None:
                 deal.list_price = source.list_price
+                # Rebase a multipack to per-unit so it is valued against per-unit comparables.
+                # Uses the scraped identity (not the model) so the pack size can't be altered.
+                identity = getattr(source, "identity", None)
+                (
+                    deal.price,
+                    deal.list_price,
+                    deal.product_description,
+                    deal.quantity,
+                ) = per_unit_fields(deal.price, deal.list_price, deal.product_description, identity)
         self.log(f"Selected {len(parsed.deals)} deals with price>0")
         return parsed

@@ -1,14 +1,6 @@
-import sys
-import types
 import unittest
 
-# eval_retrieval imports sentence_transformers at call time, but the metric helpers under
-# test don't; stub it so importing the module is cheap and offline.
-sentence_transformers = types.ModuleType("sentence_transformers")
-sentence_transformers.SentenceTransformer = lambda *a, **k: None
-sys.modules.setdefault("sentence_transformers", sentence_transformers)
-
-from scripts.eval_retrieval import aggregate, retrieval_metrics
+from evaluation.retrieval import aggregate, retrieval_metrics
 
 
 class RetrievalMetricsTests(unittest.TestCase):
@@ -42,6 +34,20 @@ class RetrievalMetricsTests(unittest.TestCase):
         self.assertEqual(m["hit"], 0.0)
         self.assertEqual(m["category_precision"], 0.0)
 
+    def test_multipack_prices_normalized_to_per_unit(self):
+        # A 36-pack neighbor at $18 should count as $0.50/unit, matching a single-unit item.
+        item = {"category": "Electronics", "price": 0.5}
+        neighbors = [{"category": "Electronics", "price": 18.0, "quantity": 36}]
+        m = retrieval_metrics(neighbors, item)
+        self.assertAlmostEqual(m["price_ape"], 0.0)
+
+    def test_multipack_query_item_normalized(self):
+        # A 10-pack query item at $20 ($2/unit) vs single-unit $2 neighbors -> 0% error.
+        item = {"category": "Electronics", "price": 20.0, "quantity": 10}
+        neighbors = [{"category": "Electronics", "price": 2.0}]
+        m = retrieval_metrics(neighbors, item)
+        self.assertAlmostEqual(m["price_ape"], 0.0)
+
     def test_aggregate_averages(self):
         per_query = [
             {"category_precision": 1.0, "hit": 1.0, "price_ape": 0.0},
@@ -52,6 +58,19 @@ class RetrievalMetricsTests(unittest.TestCase):
         self.assertAlmostEqual(agg["category_precision"], 0.5)
         self.assertAlmostEqual(agg["hit_rate"], 0.5)
         self.assertAlmostEqual(agg["price_mape"], 0.2)
+
+    def test_median_ape_is_robust_to_outlier(self):
+        # One junk-cheap item with a huge APE must not define the headline metric: the median
+        # stays put while the mean is dragged up. Mirrors the $0.01-row blowup seen in practice.
+        per_query = [
+            {"category_precision": 1.0, "hit": 1.0, "price_ape": 0.3},
+            {"category_precision": 1.0, "hit": 1.0, "price_ape": 0.3},
+            {"category_precision": 1.0, "hit": 1.0, "price_ape": 0.3},
+            {"category_precision": 1.0, "hit": 1.0, "price_ape": 1000.0},
+        ]
+        agg = aggregate(per_query)
+        self.assertAlmostEqual(agg["price_median_ape"], 0.3)
+        self.assertGreater(agg["price_mape"], 100.0)
 
 
 if __name__ == "__main__":

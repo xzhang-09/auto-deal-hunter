@@ -7,6 +7,8 @@ class Item(BaseModel):
     category: str
     price: float
     summary: str
+    quantity: int = 1  # pack size, so the price can be normalized to per-unit at query time
+    variant: Optional[str] = None  # price-affecting spec (e.g. "512GB"), recorded for retrieval
 
     @classmethod
     def from_mcauley_row(cls, row: dict) -> Optional["Item"]:
