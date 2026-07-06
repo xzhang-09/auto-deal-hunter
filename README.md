@@ -1,12 +1,20 @@
 # Auto Deal Hunter
 
-Auto Deal Hunter is a Python app that scans retail deal feeds, estimates a product's market value via **RAG** over an independent Amazon reference set, and surfaces deals whose current price appears meaningfully below that estimate. Its scan/estimate/notify capabilities are also exposed as MCP tools for reuse by any MCP client.
+Auto Deal Hunter watches retail deal feeds, estimates whether each product is actually underpriced, and surfaces the best opportunities in a local dashboard with optional phone notifications.
+
+Under the hood, it uses **RAG** over an independent Amazon reference set for fair-value estimates, applies deterministic scoring and list-price guardrails to reduce false bargains, and exposes scan/estimate/notify capabilities as MCP tools for reuse by MCP clients.
 
 ## Demo
 
+Gradio dashboard:
+
 ![Gradio demo](docs/assets/gradio-demo.png)
 
-The Gradio app shows saved opportunities, live agent logs, and a 3D projection of the embedded product reference library.
+Telegram notification:
+
+![Telegram deal notification](docs/assets/telegram-notification-demo.jpg)
+
+The Gradio app shows saved opportunities, live agent logs, and a 3D projection of the embedded product reference library. Telegram notifications deliver the selected deal to your phone.
 
 ## Features
 
@@ -15,7 +23,7 @@ The Gradio app shows saved opportunities, live agent logs, and a 3D projection o
 - **Cost-aware** — Logs LLM token usage and an estimated dollar cost per run.
 - **Guardrail** — Caps reported savings at the seller's list price when a list price is available, reducing false bargains from high model estimates.
 - **Identity-aware** — Detects multi-packs, bundles, and subscriptions so a listing isn't mis-valued against single-unit comparables: multi-packs are rebased to a per-unit price (on both the deal and its comparables), while bundles and subscriptions are skipped.
-- **Notify** — Sends optional Pushover notifications for compelling deals. Estimates built on a
+- **Notify** — Sends optional Telegram (or legacy Pushover) notifications for compelling deals. Estimates built on a
   weak RAG match (no close comparable in the vector store) fall below `RAG_MIN_CONFIDENCE` and are
   still saved but held back from notification, cutting false bargains at the source.
 - **Gradio UI** — Displays the opportunity table, guardrail summary, logs, and a 3D t-SNE map of the vector store.
@@ -26,7 +34,7 @@ The Gradio app shows saved opportunities, live agent logs, and a 3D projection o
 - OpenAI API key for the agent loop and price estimator (or an OpenAI-compatible endpoint — see
   [`OPENAI_BASE_URL`](#environment-variables))
 - [Hugging Face](https://huggingface.co/) access for downloading the McAuley-Lab dataset
-- Optional: Pushover user/app tokens for push notifications
+- Optional: Telegram bot token/chat id for push notifications
 
 ## Installation
 
@@ -36,11 +44,6 @@ source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 pip install -e .
 ```
 
-Installing the project (`pip install -e .`) puts the package tree (`app`, `agents`, `domain`,
-`ingest`, `core`, `infra`, `evaluation`, `scripts`) on the import path. The MCP client also
-passes the project root to the spawned MCP server process so its package imports resolve the
-same way when scans run from the Gradio UI.
-
 ## Configuration
 
 Copy `.env.example` to `.env` and fill in your values:
@@ -49,7 +52,7 @@ Copy `.env.example` to `.env` and fill in your values:
 cp .env.example .env   # Windows: copy .env.example .env
 ```
 
-Required: `OPENAI_API_KEY`. Set `HF_TOKEN` if Hugging Face requires authentication for the dataset download. Optional: `PUSHOVER_USER`/`PUSHOVER_TOKEN` for push notifications. See [Environment Variables](#environment-variables) for the full list.
+Required: `OPENAI_API_KEY`. Set `HF_TOKEN` if Hugging Face requires authentication for the dataset download. Optional: `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` for push notifications. See [Environment Variables](#environment-variables) for the full list.
 
 ## Quick Start
 
@@ -59,13 +62,15 @@ Build this once before running the agent. The script downloads the Electronics c
 [McAuley-Lab/Amazon-Reviews-2023](https://huggingface.co/datasets/McAuley-Lab/Amazon-Reviews-2023)
 for RAG-based price estimation.
 
-For a faster first run, build a smaller local store:
+For a faster first run, use the smaller local store below. It still downloads the dataset, but
+keeps the initial build short enough to validate the app before spending time and disk on the
+default 50,000-item store:
 
 ```bash
 MCAULEY_MAX_ITEMS=1000 EVAL_HOLDOUT_SIZE=50 python scripts/build_vector_store.py
 ```
 
-For the default larger store:
+For the default larger store, expect a longer network-bound build and more local disk usage:
 
 ```bash
 python scripts/build_vector_store.py
@@ -103,7 +108,7 @@ cp .env.example .env
 docker compose run --rm auto-deal-hunter python scripts/build_vector_store.py
 ```
 
-For a faster first run:
+For a faster Docker first run, build the same smaller validation store:
 
 ```bash
 docker compose run --rm -e MCAULEY_MAX_ITEMS=1000 -e EVAL_HOLDOUT_SIZE=50 auto-deal-hunter python scripts/build_vector_store.py
@@ -120,7 +125,7 @@ Open `http://localhost:7860` after the container starts.
 ## How It Works
 
 ```text
-   DealNews RSS ──▶ ScannerAgent    PricerAgent            MessagingAgent ──▶ Pushover
+   DealNews RSS ──▶ ScannerAgent    PricerAgent            MessagingAgent ──▶ Telegram
                     (filter + LLM   (RAG: ChromaDB +        (LLM-crafted
                      selection)      LLM estimate)           message)
                           │               │                     ▲
@@ -158,6 +163,11 @@ path's incidental complexity (spawning a subprocess, injecting `PYTHONPATH`, mer
 usage across the process boundary, and re-pairing tool-call arguments to scanned deals) for a
 flow whose outcome is deterministic either way.
 
+Installing the project with `pip install -e .` keeps the package tree (`app`, `agents`, `domain`,
+`ingest`, `core`, `infra`, `evaluation`, `scripts`) importable from both the direct pipeline and
+the spawned MCP server process, so scans behave the same whether they run in-process or through
+the MCP demonstration path.
+
 ## Estimate quality guardrail
 
 The opportunity table reports savings as `min(estimate, list_price) - deal_price` when a list
@@ -182,7 +192,7 @@ excluded from the vector store, so they measure generalization rather than exact
 ### Pricer (end-to-end)
 
 ```bash
-python scripts/eval_pricers.py --size 200
+python -m scripts.eval_pricers --size 200
 ```
 
 Runs `PricerAgent` (RAG + LLM) against the holdout, scoring each estimate against the item's
@@ -190,7 +200,7 @@ known price. To save aggregate metrics and fail the command when quality drifts 
 (useful in CI):
 
 ```bash
-python scripts/eval_pricers.py --size 200 --output-json data/eval_metrics.json --max-mae 150 --max-abs-bias 50 --max-over-rate 0.65
+python -m scripts.eval_pricers --size 200 --output-json data/eval_metrics.json --max-mae 150 --max-abs-bias 50 --max-over-rate 0.65
 ```
 
 The command prints aggregate accuracy metrics plus the run's LLM token cost:
@@ -217,19 +227,31 @@ End-to-end price error blends two failure modes: a bad retriever (wrong neighbor
 (wrong reasoning over good neighbors). To isolate the retriever — no LLM calls, near-free — run:
 
 ```bash
-python scripts/eval_retrieval.py --size 200 --k 5
+python -m scripts.eval_retrieval --size 200 --k 5
 ```
 
 The command prints per-k retrieval metrics:
 
 ```text
-category_precision@5: <pct>%   hit_rate@5: <pct>%   price_MAPE@5: <pct>%   n=<count>
+category_precision@5: <pct>%   hit_rate@5: <pct>%   price_medianAPE@5: <pct>%   (meanAPE: <pct>%)   n=<count>
 ```
 
 It scores `category_precision@k` (are the neighbors the right category?), `hit_rate@k` (at least
-one same-category neighbor?), and `price_MAPE@k` (how close the median neighbor price is to the
-true price). Use this to tell whether a high pricer MAE is a retrieval problem or a reasoning
-problem before tuning either side.
+one same-category neighbor?), `price_medianAPE@k` (the median percentage error of neighbor-price
+estimates), and `meanAPE` (the mean percentage error, which is more sensitive to long-tail misses).
+Use this to tell whether a high pricer MAE is a retrieval problem or a reasoning problem before
+tuning either side.
+
+Example local run, using the current `data/eval_holdout.json` and vector store:
+
+```text
+python -m scripts.eval_retrieval --size 200 --k 5
+category_precision@5: 57%   hit_rate@5: 86%   price_medianAPE@5: 30%   (meanAPE: 85%)   n=200
+```
+
+The high hit rate means most held-out items retrieve at least one same-category neighbor, while
+the lower category precision and high mean absolute percentage error show why the app treats this
+as a screening/ranking signal rather than a pricing oracle.
 
 ### Reproducibility
 
@@ -243,7 +265,7 @@ Run the test suite (unit tests for the scrapers, agents, MCP hand-off, determini
 cost tracker, and eval metrics):
 
 ```bash
-python -m unittest discover -s tests
+python -m pytest
 ```
 
 Lint with `ruff check .`. Tests run offline — network, OpenAI, and Sentence-Transformers calls
@@ -300,7 +322,7 @@ auto-deal-hunter/
 │   └── paths.py           # Shared runtime/data paths
 ├── evaluation/            # Importable, tested eval metrics
 │   ├── pricer.py          # MAE / bias / over-prediction
-│   └── retrieval.py       # category_precision@k / hit_rate@k / price_MAPE@k
+│   └── retrieval.py       # category_precision@k / hit_rate@k / price_medianAPE@k
 ├── scripts/               # Thin CLI wrappers
 │   ├── audit_identity.py   # Identity-rule audit over live scraped deals
 │   ├── build_vector_store.py
@@ -318,8 +340,10 @@ auto-deal-hunter/
 | `OPENAI_API_KEY` | API key for the MCP agent loop and RAG estimator (OpenAI, or the configured OpenAI-compatible endpoint) |
 | `OPENAI_BASE_URL` | Optional. Point the OpenAI client at an OpenAI-compatible Chat Completions endpoint. The endpoint must support the features this app uses, especially tool calling; structured-output and `seed` behavior vary by backend |
 | `HF_TOKEN` | Optional Hugging Face API token, used when dataset access or rate limits require authentication |
-| `PUSHOVER_USER` | Pushover user key (for push notifications) |
-| `PUSHOVER_TOKEN` | Pushover app token |
+| `TELEGRAM_BOT_TOKEN` | Optional Telegram bot token for push notifications. Create one with BotFather |
+| `TELEGRAM_CHAT_ID` | Optional Telegram chat id that receives deal notifications |
+| `PUSHOVER_USER` | Optional legacy Pushover user key, used only if Telegram is not configured |
+| `PUSHOVER_TOKEN` | Optional legacy Pushover app token, used only if Telegram is not configured |
 | **Model & runtime config** | |
 | `SCAN_MODE` | `direct` (default) runs the scan pipeline in-process; `agent` drives the MCP tool server through an LLM tool-calling loop (demo of MCP orchestration). Both select the same deterministic best deal |
 | `LLM_MODEL` | Chat model used by every agent, served by the configured OpenAI-compatible endpoint (default: `gpt-4o-mini`) |
@@ -338,6 +362,12 @@ auto-deal-hunter/
 | `MCAULEY_MAX_ITEMS` | Cap on items embedded into the vector store (default: `50000`) |
 | `EVAL_HOLDOUT_SIZE` | Items held out for `eval_pricers.py` (default: `500`) |
 | `EVAL_HOLDOUT_PATH` | Holdout sample path used by `eval_pricers.py` (default: `data/eval_holdout.json`) |
+
+Telegram setup:
+
+1. Message `@BotFather` in Telegram, create a bot, and copy its token into `TELEGRAM_BOT_TOKEN`.
+2. Send any message to your new bot.
+3. Open `https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/getUpdates` and copy the `message.chat.id` value into `TELEGRAM_CHAT_ID`.
 
 ## Limitations
 
