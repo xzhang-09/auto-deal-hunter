@@ -7,6 +7,7 @@ from domain.deal import Opportunity
 import requests
 
 PUSHOVER_URL = "https://api.pushover.net/1/messages.json"
+TELEGRAM_URL_TEMPLATE = "https://api.telegram.org/bot{token}/sendMessage"
 
 
 class MessagingAgent(Agent):
@@ -17,27 +18,50 @@ class MessagingAgent(Agent):
     def __init__(self):
         self.log("Initializing")
         self.client = OpenAI(max_retries=LLM_MAX_RETRIES)
+        self.telegram_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+        self.telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
         self.pushover_user = os.getenv("PUSHOVER_USER", "")
         self.pushover_token = os.getenv("PUSHOVER_TOKEN", "")
         self.log("Ready")
 
     def push(self, text: str):
         self.log("Sending push notification")
+        if self.telegram_token and self.telegram_chat_id:
+            self._push_telegram(text)
+        elif self.pushover_user and self.pushover_token:
+            self._push_pushover(text)
+        else:
+            self.log("Push notifications not configured - logging instead")
+            self.log(text[:200])
+
+    def _push_telegram(self, text: str):
+        payload = {
+            "chat_id": self.telegram_chat_id,
+            "text": text,
+            "disable_web_page_preview": False,
+        }
+        try:
+            response = requests.post(
+                TELEGRAM_URL_TEMPLATE.format(token=self.telegram_token),
+                data=payload,
+                timeout=10,
+            )
+            response.raise_for_status()
+        except requests.RequestException as exc:
+            self.log(f"Telegram notification failed: {exc}")
+
+    def _push_pushover(self, text: str):
         payload = {
             "user": self.pushover_user,
             "token": self.pushover_token,
             "message": text,
             "sound": "cashregister",
         }
-        if self.pushover_user and self.pushover_token:
-            try:
-                response = requests.post(PUSHOVER_URL, data=payload, timeout=10)
-                response.raise_for_status()
-            except requests.RequestException as exc:
-                self.log(f"Pushover notification failed: {exc}")
-        else:
-            self.log("Pushover not configured - logging instead")
-            self.log(text[:200])
+        try:
+            response = requests.post(PUSHOVER_URL, data=payload, timeout=10)
+            response.raise_for_status()
+        except requests.RequestException as exc:
+            self.log(f"Pushover notification failed: {exc}")
 
     def alert(self, opportunity: Opportunity):
         text = (
