@@ -43,8 +43,7 @@ class ExtractIdentityRuleTests(unittest.TestCase):
             self.assertEqual(ident.quantity, qty, text)
 
     def test_part_numbers_are_not_quantities(self):
-        # Real store cases that previously parsed a model/part-number fragment as a huge pack
-        # size (per-unit price -> ~$0, which blew up retrieval MAPE). Must be treated as single.
+        # Model and part-number fragments must not be treated as pack sizes.
         for text in [
             "PK Power 3-Prong AC Power Cord Lead for HP 8121-0840\nPK Power cord",
             "UpBright 19V AC/DC Adapter Compatible with HP Pavilion ST-C-090-190004",

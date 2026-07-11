@@ -2,32 +2,34 @@ import json
 import re
 from typing import List
 from openai import OpenAI
+from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
 from agents.agent import Agent
 from infra.config import (
     EMBEDDING_MODEL,
     LLM_MAX_RETRIES,
-    LLM_MODEL,
     LLM_SEED,
     LLM_TEMPERATURE,
+    PRICER_MODEL,
+    RERANK_CANDIDATES,
+    RERANK_MODE,
     VECTOR_SPACE,
 )
 from infra import usage
+from infra.openai_compat import parse_structured
+from core.reranker import build_reranker
 
 
-# Placeholder number shown in the prompt's JSON format example. A previous version used a
-# realistic-looking 123.45, which gpt-4o-mini would echo verbatim whenever the RAG context was
-# uninformative (a niche product with no good comparables in the store) -- surfacing a bogus
-# "estimate" of exactly $123.45 that looked real but was just the example parroted back. We use
-# 0.00 instead: a fair value is never <= 0, so an echoed placeholder is caught by the guard in
-# `price()` rather than masquerading as a number wildly above the item's list price.
+# Placeholder number shown in the prompt's JSON format example. It is intentionally invalid as a
+# fair-value estimate: if the model echoes the example when RAG context is uninformative, the
+# guard in `price()` catches it instead of surfacing a fabricated positive value.
 PLACEHOLDER_PRICE = 0.0
 
 
 class PricerAgent(Agent):
     name = "Pricer Agent"
     color = Agent.BLUE
-    MODEL = LLM_MODEL
+    MODEL = PRICER_MODEL
 
     def __init__(self, collection):
         self.log("Initializing")
@@ -36,6 +38,7 @@ class PricerAgent(Agent):
         self._check_embedding_model(collection)
         self._check_distance_space(collection)
         self.model = SentenceTransformer(EMBEDDING_MODEL)
+        self.reranker = build_reranker(RERANK_MODE)
         self.log("Ready")
 
     def _check_embedding_model(self, collection) -> None:
@@ -43,8 +46,8 @@ class PricerAgent(Agent):
 
         The build script stamps the embedding model name into the collection metadata.
         Querying with a different model produces vectors in an incompatible space and
-        silently returns nonsense neighbors, so fail loudly instead. Stores built before
-        this stamp existed have no metadata and are allowed (with a warning)."""
+        silently returns nonsense neighbors, so fail loudly instead. Stores without metadata
+        are allowed with a warning."""
         metadata = getattr(collection, "metadata", None) or {}
         built_with = metadata.get("embedding_model")
         if built_with is None:
@@ -90,7 +93,7 @@ class PricerAgent(Agent):
         A multipack comparable (e.g. a 36-pack stored at its pack price) would otherwise drag
         the LLM's per-unit value estimate upward. When the build step recorded a quantity > 1,
         divide to a per-unit price and annotate the listing so the model reads it correctly.
-        Stores built before quantity was recorded have no such key and are left unchanged."""
+        Comparables without quantity metadata are treated as single-unit listings."""
         documents_out, prices_out = [], []
         for doc, meta in zip(documents, metadatas):
             quantity = meta.get("quantity") or 1
@@ -107,13 +110,19 @@ class PricerAgent(Agent):
         # normalize_embeddings to match the build path: the store holds unit vectors under
         # cosine distance, so the query must be a unit vector too for consistent neighbors.
         vector = self.model.encode([description], normalize_embeddings=True)
+        n_results = RERANK_CANDIDATES if RERANK_MODE != "off" else 5
         results = self.collection.query(
-            query_embeddings=vector.astype(float).tolist(), n_results=5
+            query_embeddings=vector.astype(float).tolist(), n_results=n_results
         )
-        documents, prices = self._to_comparables(
-            results["documents"][0][:], results["metadatas"][0][:]
-        )
+        raw_documents = results["documents"][0][:]
+        raw_metadatas = results["metadatas"][0][:]
+        order = self.reranker.rerank(description, raw_documents)[:5]
+        ordered_documents = [raw_documents[i] for i in order]
+        ordered_metadatas = [raw_metadatas[i] for i in order]
+        documents, prices = self._to_comparables(ordered_documents, ordered_metadatas)
         # Cosine distances to the neighbors (parallel to documents); used to score confidence.
+        # Confidence intentionally remains based on the pre-rerank nearest neighbor so its
+        # cosine-distance semantics stay stable across reranker modes.
         distances = results.get("distances")
         distances = list(distances[0][:]) if distances else []
         return documents, prices, distances
@@ -148,6 +157,25 @@ class PricerAgent(Agent):
             raise ValueError(f"Expected exactly one price, got: {s}")
         return float(matches[0])
 
+    def _estimate_price(self, prompt: str) -> float:
+        try:
+            result = parse_structured(
+                self.client,
+                model=self.MODEL,
+                user_prompt=prompt,
+                text_format=PriceEstimate,
+            )
+            return result.price
+        except (AttributeError, ValueError):
+            response = self.client.chat.completions.create(
+                model=self.MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=LLM_TEMPERATURE,
+                seed=LLM_SEED,
+            )
+            usage.TRACKER.record(self.MODEL, getattr(response, "usage", None))
+            return self.get_price(response.choices[0].message.content)
+
     def price(self, description: str) -> float:
         """Fair-value estimate as a plain float. Kept for callers (eval, tests) that only need
         the number; ``estimate_with_confidence`` returns the retrieval-confidence alongside it."""
@@ -158,30 +186,16 @@ class PricerAgent(Agent):
         """Estimate plus a retrieval confidence in [0, 1] (see ``_retrieval_confidence``)."""
         documents, prices, distances = self.find_similars(description)
         self.log(f"Calling {self.MODEL} with RAG context")
-        messages = [
-            {
-                "role": "user",
-                "content": (
-                    f'Estimate the price. Respond as JSON only: {{"price": {PLACEHOLDER_PRICE:.2f}}}\n\n'
-                    f"{description}\n\n{self.make_context(documents, prices)}"
-                ),
-            }
-        ]
-        response = self.client.chat.completions.create(
-            model=self.MODEL,
-            messages=messages,
-            temperature=LLM_TEMPERATURE,
-            seed=LLM_SEED,
+        prompt = (
+            f'Estimate the price. Respond as JSON only: {{"price": {PLACEHOLDER_PRICE:.2f}}}\n\n'
+            f"{description}\n\n{self.make_context(documents, prices)}"
         )
-        usage.TRACKER.record(self.MODEL, getattr(response, "usage", None))
-        reply = response.choices[0].message.content
-        result = self.get_price(reply)
+        result = self._estimate_price(prompt)
         if result <= 0:
             # A fair-value estimate is never <= 0. In practice this means the model echoed the
             # prompt's placeholder example instead of estimating -- its fallback when the RAG
             # context is uninformative. Fail loudly so the deal is skipped rather than surfacing
-            # a fabricated value (which previously appeared as a fixed $123.45, far above the
-            # item's list price). The caller (estimate_value tool / eval) handles the error.
+            # a fabricated value. The caller (estimate_value tool / eval) handles the error.
             raise ValueError(
                 f"Pricer produced no usable estimate (got {result}); the RAG context was likely "
                 f"uninformative for this product. Description: {description[:80]!r}"
@@ -189,3 +203,7 @@ class PricerAgent(Agent):
         confidence = self._retrieval_confidence(distances)
         self.log(f"Predicted ${result:.2f} (retrieval confidence {confidence:.2f})")
         return result, confidence
+
+
+class PriceEstimate(BaseModel):
+    price: float

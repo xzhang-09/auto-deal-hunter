@@ -62,14 +62,27 @@ def main():
 
     guesses = []
     truths = []
+    failures = 0
     for item in items:
-        guess = agent.price(item["summary"])
+        # The pricer fails loudly (ValueError) when it can't produce a usable estimate, e.g.
+        # the model echoes the placeholder because the RAG context is uninformative. One
+        # unpriceable item must not kill the whole eval: skip it and report the failure rate,
+        # which is itself a quality signal worth tracking across configurations.
+        try:
+            guess = agent.price(item["summary"])
+        except ValueError as exc:
+            failures += 1
+            print(f"  SKIP (no usable estimate)  {item['title'][:50]}  [{exc}]")
+            continue
         truth = item["price"]
         guesses.append(guess)
         truths.append(truth)
         print(f"  guess=${guess:,.2f}  truth=${truth:,.2f}  error=${abs(guess - truth):,.2f}  {item['title'][:50]}")
 
     stats = summarize(guesses, truths)
+    stats["n_failed"] = failures
+    if failures:
+        print(f"\n{failures} item(s) skipped: pricer produced no usable estimate.")
     print(f"\n{format_summary_line(stats)}")
     from infra import usage
 

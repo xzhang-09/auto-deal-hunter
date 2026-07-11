@@ -90,8 +90,8 @@ class DistanceSpaceGuardTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self._check({"hnsw:space": "l2"})
 
-    def test_legacy_store_without_space_warns_but_passes(self):
-        # No hnsw:space key (store predates the stamp): warn-and-allow, not raise.
+    def test_store_without_space_warns_but_passes(self):
+        # No hnsw:space key: warn-and-allow, not raise.
         self._check({"embedding_model": "x"})
         self._check(None)
 
@@ -129,7 +129,6 @@ class ComparableNormalizationTests(unittest.TestCase):
         self.assertIn("pack of 36", out_docs[0])
 
     def test_missing_quantity_defaults_to_single(self):
-        # Stores built before quantity was recorded have no such key.
         out_docs, out_prices = PricerAgent._to_comparables(["X"], [{"price": 200.0}])
         self.assertEqual(out_prices, [200.0])
         self.assertEqual(out_docs, ["X"])

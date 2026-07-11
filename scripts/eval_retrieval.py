@@ -29,6 +29,12 @@ def main():
     parser = argparse.ArgumentParser(description="Evaluate the RAG retriever on held-out McAuley items.")
     parser.add_argument("--size", type=int, default=200, help="Number of holdout items (default: 200).")
     parser.add_argument("--k", type=int, default=5, help="Neighbors to retrieve per query (default: 5).")
+    parser.add_argument(
+        "--rerank",
+        choices=["off", "cross-encoder", "llm"],
+        default="off",
+        help="Optional second-stage reranker to apply before scoring.",
+    )
     parser.add_argument("--output-json", help="Optional path to write aggregate metrics as JSON.")
     args = parser.parse_args()
 
@@ -45,13 +51,25 @@ def main():
     db_path = os.getenv("PRODUCTS_VECTORSTORE_PATH", str(DEFAULT_VECTORSTORE_PATH))
     collection = chromadb.PersistentClient(path=db_path).get_or_create_collection("products")
     encoder = SentenceTransformer(EMBEDDING_MODEL)
+    reranker = None
+    if args.rerank != "off":
+        from core.reranker import build_reranker
+        from infra.config import RERANK_CANDIDATES
+
+        reranker = build_reranker(args.rerank)
+        n_results = max(args.k, RERANK_CANDIDATES)
+    else:
+        n_results = args.k
 
     per_query = []
     for item in items:
         # normalize_embeddings to match the build path (unit vectors under cosine distance).
         vector = encoder.encode([item["summary"]], normalize_embeddings=True).astype(float).tolist()
-        results = collection.query(query_embeddings=vector, n_results=args.k)
+        results = collection.query(query_embeddings=vector, n_results=n_results)
         neighbors = results["metadatas"][0]
+        if reranker is not None:
+            order = reranker.rerank(item["summary"], results["documents"][0])[: args.k]
+            neighbors = [neighbors[i] for i in order]
         per_query.append(retrieval_metrics(neighbors, item))
 
     stats = aggregate(per_query)
