@@ -26,8 +26,30 @@ def _get_float(name: str, default: float) -> float:
         return default
 
 
+def _get_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None or raw == "":
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
 # Chat model used by every agent (scanner, estimator, messenger, MCP loop).
 LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini")
+
+
+def _model_override(name: str) -> str:
+    return os.getenv(name) or LLM_MODEL
+
+
+SCANNER_MODEL = _model_override("SCANNER_MODEL")
+PRICER_MODEL = _model_override("PRICER_MODEL")
+MESSAGING_MODEL = _model_override("MESSAGING_MODEL")
+JUDGE_MODEL = _model_override("JUDGE_MODEL")
+MCP_MODEL = _model_override("MCP_MODEL")
+OPENAI_API_STYLE = (os.getenv("OPENAI_API_STYLE") or "responses").lower()
 
 # temperature=0 is the strongest reproducibility lever we have; `seed` is only
 # best-effort on OpenAI's side, so we set both. See README "Reproducibility".
@@ -49,7 +71,7 @@ EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-mpnet-
 # closest comparable is essentially unrelated has no trustworthy basis for its estimate, so it
 # is still saved to the store but NOT pushed. The default is deliberately low -- it only
 # suppresses near-orthogonal (no-good-comparable) matches; raise it to trade fewer false pushes
-# for more missed deals. Set to 0 to disable the gate (push everything, as before).
+# for more missed deals. Set to 0 to disable the gate.
 RAG_MIN_CONFIDENCE = _get_float("RAG_MIN_CONFIDENCE", 0.15)
 
 # Distance metric for the Chroma collection. all-mpnet-base-v2 is tuned for cosine
@@ -59,6 +81,11 @@ RAG_MIN_CONFIDENCE = _get_float("RAG_MIN_CONFIDENCE", 0.15)
 # back and refuses a store built with a different metric. Changing it requires a rebuild
 # (Chroma cannot alter a collection's space in place).
 VECTOR_SPACE = "cosine"
+
+# Optional second-stage retrieval re-ranking. Default is off so local runs and CI do not
+# download a cross-encoder model unless explicitly requested.
+RERANK_MODE = os.getenv("RERANK_MODE", "off").lower()
+RERANK_CANDIDATES = _get_int("RERANK_CANDIDATES", 20)
 
 # Deals are ephemeral: DealNews edits/expires listings, so a stored opportunity is a
 # snapshot that goes stale. Opportunities not re-confirmed within this window are pruned

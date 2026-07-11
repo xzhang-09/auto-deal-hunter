@@ -33,8 +33,14 @@ class UsageTracker:
         """Record one LLM response's usage. ``usage`` is the SDK usage object (or None)."""
         if usage is None:
             return
-        prompt = getattr(usage, "prompt_tokens", 0) or 0
-        completion = getattr(usage, "completion_tokens", 0) or 0
+        prompt = getattr(usage, "prompt_tokens", None)
+        if prompt is None:
+            prompt = getattr(usage, "input_tokens", 0)
+        completion = getattr(usage, "completion_tokens", None)
+        if completion is None:
+            completion = getattr(usage, "output_tokens", 0)
+        prompt = prompt or 0
+        completion = completion or 0
         with self._lock:
             self.calls += 1
             self.prompt_tokens += prompt
