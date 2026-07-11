@@ -110,6 +110,39 @@ class UiHelperTests(unittest.TestCase):
         self.assertEqual(len(row), 7)
         self.assertEqual(row[6], "[View](https://example.test/deal)")
 
+    def test_mark_feedback_for_row_updates_selected_opportunity(self):
+        calls = []
+        framework = types.SimpleNamespace(
+            memory=[self._opportunity(price=50.0, estimate=100.0)],
+            opportunity_store=types.SimpleNamespace(
+                mark_feedback=lambda url, label: calls.append((url, label))
+            ),
+        )
+
+        rows = ui.mark_feedback_for_row(framework, 0, "good_deal")
+
+        self.assertEqual(calls, [("https://example.test/deal", "good_deal")])
+        self.assertEqual(rows[0][0], "Example product")
+
+    def test_mark_feedback_for_row_ignores_missing_selection(self):
+        calls = []
+        framework = types.SimpleNamespace(
+            memory=[self._opportunity(price=50.0, estimate=100.0)],
+            opportunity_store=types.SimpleNamespace(
+                mark_feedback=lambda url, label: calls.append((url, label))
+            ),
+        )
+
+        rows = ui.mark_feedback_for_row(framework, None, "good_deal")
+
+        self.assertEqual(calls, [])
+        self.assertEqual(len(rows), 1)
+
+    def test_alert_for_row_ignores_missing_selection(self):
+        framework = types.SimpleNamespace(memory=[])
+
+        self.assertIsNone(ui.alert_for_row(framework, None))
+
     def test_discount_is_capped_at_list_price(self):
         # estimate above list: value capped at list, so discount = 149.99 - 50, not 160 - 50.
         over = self._opportunity(price=50.0, estimate=160.0, list_price=149.99)

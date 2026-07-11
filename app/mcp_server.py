@@ -16,7 +16,7 @@ from core.source_ids import deal_id
 from infra.config import RAG_MIN_CONFIDENCE
 from infra.paths import DEFAULT_VECTORSTORE_PATH, ensure_data_dirs
 from infra import usage
-from domain.deal import Deal, Opportunity
+from domain.deal import Opportunity
 
 # .env is loaded transitively via infra.config (imported by the agents above).
 logging.basicConfig(level=logging.INFO, stream=sys.stderr)
@@ -53,14 +53,11 @@ def _get_agents():
 @mcp.tool()
 def scan_deals(memory_json: str = "[]") -> str:
     """Scan RSS feeds for bargain deals. Returns JSON list of deals with product_description, price, url.
-    memory_json: JSON array of previously surfaced opportunities (use deal URLs to avoid duplicates)."""
+    memory_json: JSON array of already surfaced opportunities (use deal URLs to avoid duplicates)."""
     agents = _get_agents()
     try:
         memory_data = json.loads(memory_json) if memory_json else []
-        memory = [
-            Opportunity(deal=Deal(**o["deal"]), estimate=o["estimate"])
-            for o in memory_data
-        ]
+        memory = [Opportunity(**o) for o in memory_data]
     except Exception as exc:
         # Falling back to an empty memory silently disables dedup: every already-surfaced deal
         # would be re-estimated (cost) and re-notified (spam) with no trace. Log loudly so a

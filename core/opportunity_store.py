@@ -11,10 +11,13 @@ _NEW_SCHEMA = """
         dedup_id TEXT PRIMARY KEY,
         url TEXT NOT NULL,
         payload_json TEXT NOT NULL,
+        feedback TEXT,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
 """
+
+VALID_FEEDBACK = {"good_deal", "bad_deal"}
 
 
 class OpportunityStore:
@@ -40,6 +43,9 @@ class OpportunityStore:
             columns = {row[1] for row in conn.execute("PRAGMA table_info(opportunities)")}
             if "dedup_id" not in columns:
                 self._migrate_to_dedup_id(conn, columns)
+                columns = {row[1] for row in conn.execute("PRAGMA table_info(opportunities)")}
+            if "feedback" not in columns:
+                conn.execute("ALTER TABLE opportunities ADD COLUMN feedback TEXT")
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_opportunities_created_at ON opportunities(created_at)"
             )
@@ -72,8 +78,8 @@ class OpportunityStore:
         conn.execute(_NEW_SCHEMA)
         conn.executemany(
             """
-            INSERT INTO opportunities (dedup_id, url, payload_json, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO opportunities (dedup_id, url, payload_json, feedback, created_at, updated_at)
+            VALUES (?, ?, ?, NULL, ?, ?)
             """,
             [
                 (did, url, payload_json, created_at, updated_at)
@@ -99,6 +105,28 @@ class OpportunityStore:
                 (deal_id(opportunity.deal.url), opportunity.deal.url, json.dumps(opportunity.model_dump())),
             )
 
+    def mark_feedback(self, url: str, label: str) -> None:
+        if label not in VALID_FEEDBACK:
+            raise ValueError(f"Unknown feedback label '{label}'. Use good_deal or bad_deal.")
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE opportunities SET feedback = ? WHERE dedup_id = ?",
+                (label, deal_id(url)),
+            )
+
+    def feedback_counts(self) -> dict[str, int]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT feedback, COUNT(*) FROM opportunities GROUP BY feedback"
+            ).fetchall()
+        counts = {"good_deal": 0, "bad_deal": 0, "unlabeled": 0}
+        for feedback, count in rows:
+            if feedback in VALID_FEEDBACK:
+                counts[feedback] = count
+            else:
+                counts["unlabeled"] += count
+        return counts
+
     def prune_stale(self, max_age_hours: float) -> int:
         """Delete opportunities not confirmed within max_age_hours, returning the count
         removed. A non-positive max_age_hours disables expiry (no-op). Comparison runs in
@@ -121,6 +149,13 @@ class OpportunityStore:
                 "SELECT payload_json FROM opportunities ORDER BY created_at"
             ).fetchall()
         return [Opportunity(**json.loads(row[0])) for row in rows]
+
+    def list_feedback_rows(self) -> list[tuple[Opportunity, str | None]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT payload_json, feedback FROM opportunities ORDER BY created_at"
+            ).fetchall()
+        return [(Opportunity(**json.loads(payload)), feedback) for payload, feedback in rows]
 
     def migrate_from_json(self, legacy_path: str | Path) -> None:
         """One-time seed from a legacy memory.json. Insert-or-ignore, NOT upsert: this runs

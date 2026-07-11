@@ -86,7 +86,9 @@ class DealPipeline:
                 # fabricated value. See PricerAgent.price for the guard details.
                 logging.info("Skipping deal with no usable estimate: %s", exc)
                 continue
-            candidates.append(Opportunity(deal=deal, estimate=estimate))
+            candidates.append(
+                Opportunity(deal=deal, estimate=estimate, retrieval_confidence=confidence)
+            )
             confidence_by_id[deal_id(deal.url)] = confidence
 
         best = best_opportunity(candidates)

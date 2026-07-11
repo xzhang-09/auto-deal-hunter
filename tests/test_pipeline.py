@@ -57,6 +57,7 @@ class DealPipelineTests(unittest.TestCase):
         memory, best = pipeline.run([])
 
         self.assertEqual(best.deal.url, "https://x.test/1.html")
+        self.assertEqual(best.retrieval_confidence, 0.9)
         self.assertEqual(len(sent), 1)
         self.assertEqual(sent[0][3], "https://x.test/1.html")  # notify(..., url)
 

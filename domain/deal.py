@@ -25,6 +25,10 @@ class DealSelection(BaseModel):
 class Opportunity(BaseModel):
     deal: Deal
     estimate: float
+    retrieval_confidence: Optional[float] = Field(
+        default=None,
+        description="Nearest-comparable RAG confidence in [0, 1], when recorded by the pricer",
+    )
 
     @property
     def effective_value(self) -> float:

@@ -55,6 +55,60 @@ class OpportunityStoreTests(unittest.TestCase):
             # A re-scrape of the same URL overwrites the stale list price (140 -> 130).
             self.assertEqual(stored[0].deal.list_price, 130.0)
 
+    def test_mark_feedback_records_label(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = OpportunityStore(Path(tmpdir) / "deals.sqlite")
+            opportunity = self._opportunity(url="https://example.test/deal/1.html")
+            store.append(opportunity)
+
+            store.mark_feedback(opportunity.deal.url, "good_deal")
+
+            self.assertEqual(store.feedback_counts(), {"good_deal": 1, "bad_deal": 0, "unlabeled": 0})
+
+    def test_list_feedback_rows_pairs_opportunity_and_label(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = OpportunityStore(Path(tmpdir) / "deals.sqlite")
+            opportunity = self._opportunity(url="https://example.test/deal/1.html")
+            opportunity.retrieval_confidence = 0.8
+            store.append(opportunity)
+            store.mark_feedback(opportunity.deal.url, "bad_deal")
+
+            rows = store.list_feedback_rows()
+
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0][0].deal.url, opportunity.deal.url)
+            self.assertEqual(rows[0][0].retrieval_confidence, 0.8)
+            self.assertEqual(rows[0][1], "bad_deal")
+
+    def test_mark_feedback_rejects_unknown_label(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = OpportunityStore(Path(tmpdir) / "deals.sqlite")
+
+            with self.assertRaises(ValueError):
+                store.mark_feedback("https://example.test/deal/1.html", "maybe")
+
+    def test_feedback_column_is_added_to_existing_dedup_schema(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "deals.sqlite"
+            opportunity = self._opportunity(url="https://example.test/deal/1.html")
+            conn = sqlite3.connect(db_path)
+            conn.execute(
+                "CREATE TABLE opportunities (dedup_id TEXT PRIMARY KEY, url TEXT NOT NULL, "
+                "payload_json TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+                "updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+            )
+            conn.execute(
+                "INSERT INTO opportunities (dedup_id, url, payload_json) VALUES (?,?,?)",
+                ("1", opportunity.deal.url, json.dumps(opportunity.model_dump())),
+            )
+            conn.commit()
+            conn.close()
+
+            store = OpportunityStore(db_path)
+            store.mark_feedback(opportunity.deal.url, "bad_deal")
+
+            self.assertEqual(store.feedback_counts(), {"good_deal": 0, "bad_deal": 1, "unlabeled": 0})
+
     def test_prune_stale_removes_expired_and_keeps_fresh(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             store = OpportunityStore(Path(tmpdir) / "deals.sqlite")
@@ -97,7 +151,7 @@ class OpportunityStoreTests(unittest.TestCase):
             self.assertEqual(stored[0].deal.url, "https://x.test/New-Slug/1.html")
             self.assertEqual(stored[0].deal.list_price, 130.0)
 
-    def test_migrates_legacy_url_pk_schema_and_collapses_duplicates(self):
+    def test_migrates_url_pk_schema_and_collapses_duplicates(self):
         # A pre-existing store keyed on the full URL held the same product (id 1) twice under
         # different slugs. Opening it must migrate to the deal_id key and keep the freshest row.
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -135,35 +189,35 @@ class OpportunityStoreTests(unittest.TestCase):
             self.assertIn("dedup_id", cols)
 
     def test_migrate_does_not_clobber_existing_fresh_row(self):
-        # A live scrape refreshes list_price 140 -> 130; a later startup re-running the
-        # legacy migration (which still has list_price=None) must NOT overwrite it.
+        # A live scrape refreshes list_price 140 -> 130; a later startup import with
+        # list_price=None must NOT overwrite it.
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
             url = "https://example.test/deal/1.html"
-            legacy = self._opportunity(url=url)
-            legacy.deal.list_price = None
-            legacy_path = tmp_path / "memory.json"
-            legacy_path.write_text(json.dumps([legacy.model_dump()]))
+            imported = self._opportunity(url=url)
+            imported.deal.list_price = None
+            import_path = tmp_path / "memory.json"
+            import_path.write_text(json.dumps([imported.model_dump()]))
             store = OpportunityStore(tmp_path / "deals.sqlite")
 
             store.append(self._opportunity(url=url, list_price=130.0))  # fresh scrape
-            store.migrate_from_json(legacy_path)  # startup re-migration
+            store.migrate_from_json(import_path)  # startup import
 
             stored = store.list_opportunities()
             self.assertEqual(len(stored), 1)
             self.assertEqual(stored[0].deal.list_price, 130.0)  # fresh value preserved
 
-    def test_migrate_from_legacy_memory_json_once(self):
+    def test_migrate_from_memory_json_once(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
-            legacy_path = tmp_path / "memory.json"
-            legacy_path.write_text(
+            import_path = tmp_path / "memory.json"
+            import_path.write_text(
                 json.dumps([self._opportunity(url="https://example.test/deal/1.html").model_dump()])
             )
             store = OpportunityStore(tmp_path / "deals.sqlite")
 
-            store.migrate_from_json(legacy_path)
-            store.migrate_from_json(legacy_path)
+            store.migrate_from_json(import_path)
+            store.migrate_from_json(import_path)
 
             self.assertEqual(len(store.list_opportunities()), 1)
 

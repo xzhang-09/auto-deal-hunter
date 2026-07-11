@@ -145,7 +145,7 @@ def table_for(opps):
         quantity = opp.deal.quantity
         # Show the pack-level prices the user actually pays. The per-unit basis is internal --
         # used only to value a multipack against per-unit comparables -- so multiply it back by
-        # the pack size for display. (quantity 1 leaves single items exactly as before.)
+        # the pack size for display. Quantity 1 leaves single-item prices unchanged.
         price = opp.deal.price * quantity
         list_price = opp.deal.list_price * quantity if opp.deal.list_price else None
         estimate = opp.estimate * quantity
@@ -164,6 +164,26 @@ def table_for(opps):
             ]
         )
     return rows
+
+
+def mark_feedback_for_row(agent_framework, row: int | None, label: str):
+    if row is None:
+        return table_for(agent_framework.memory)
+    if row < 0 or row >= len(agent_framework.memory):
+        return table_for(agent_framework.memory)
+    opportunity = agent_framework.memory[row]
+    agent_framework.opportunity_store.mark_feedback(opportunity.deal.url, label)
+    return table_for(agent_framework.memory)
+
+
+def alert_for_row(agent_framework, row: int | None) -> None:
+    if row is None:
+        return
+    if row < 0 or row >= len(agent_framework.memory):
+        return
+    from agents.messaging_agent import MessagingAgent
+
+    MessagingAgent().alert(agent_framework.memory[row])
 
 
 def setup_logging(log_queue):
@@ -287,12 +307,17 @@ class App:
             def do_select(selected_index: gr.SelectData):
                 opportunities = self.get_agent_framework().memory
                 if not opportunities:
-                    return
+                    return None
                 row = selected_index.index[0]
                 if row < len(opportunities):
-                    from agents.messaging_agent import MessagingAgent
+                    return row
+                return None
 
-                    MessagingAgent().alert(opportunities[row])
+            def mark_selected_feedback(row, label):
+                return mark_feedback_for_row(self.get_agent_framework(), row, label)
+
+            def alert_selected(row):
+                alert_for_row(self.get_agent_framework(), row)
 
             with gr.Row(elem_classes=["app-header"]):
                 gr.Markdown(
@@ -301,6 +326,12 @@ class App:
                 )
             with gr.Row():
                 run_button = gr.Button("Scan now", variant="primary", size="sm", scale=0)
+                alert_button = gr.Button("Send alert", size="sm", scale=0)
+                good_button = gr.Button("Good deal", size="sm", scale=0)
+                bad_button = gr.Button("Bad deal", size="sm", scale=0)
+            selected_row = gr.State(None)
+            good_label = gr.State("good_deal")
+            bad_label = gr.State("bad_deal")
             with gr.Row():
                 opportunities_dataframe = gr.Dataframe(
                     label="Opportunities",
@@ -368,7 +399,18 @@ class App:
                 outputs=[log_data, status_cards, logs, opportunities_dataframe],
             )
 
-            opportunities_dataframe.select(do_select)
+            opportunities_dataframe.select(do_select, outputs=[selected_row])
+            alert_button.click(alert_selected, inputs=[selected_row])
+            good_button.click(
+                mark_selected_feedback,
+                inputs=[selected_row, good_label],
+                outputs=[opportunities_dataframe],
+            )
+            bad_button.click(
+                mark_selected_feedback,
+                inputs=[selected_row, bad_label],
+                outputs=[opportunities_dataframe],
+            )
 
         ui.launch(share=False, inbrowser=True)
 
