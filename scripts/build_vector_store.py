@@ -26,6 +26,7 @@ load_dotenv(override=True)
 DATASET = "McAuley-Lab/Amazon-Reviews-2023"
 CATEGORY = os.getenv("MCAULEY_CATEGORY", "Electronics")
 DB_PATH = os.getenv("PRODUCTS_VECTORSTORE_PATH", str(DEFAULT_VECTORSTORE_PATH))
+HOLDOUT_PATH = os.getenv("EVAL_HOLDOUT_PATH", str(DEFAULT_EVAL_HOLDOUT_PATH))
 MAX_ITEMS = int(os.getenv("MCAULEY_MAX_ITEMS", "50000"))
 HOLDOUT_SIZE = int(os.getenv("EVAL_HOLDOUT_SIZE", "500"))
 SEED = 42
@@ -73,7 +74,7 @@ def main():
         items = items[:MAX_ITEMS]
     print(f"Using {len(items)} items for vector store, {len(holdout)} held out for eval")
 
-    with open(DEFAULT_EVAL_HOLDOUT_PATH, "w") as f:
+    with open(HOLDOUT_PATH, "w") as f:
         json.dump([item.model_dump() for item in holdout], f, indent=2)
 
     client = chromadb.PersistentClient(path=DB_PATH)
