@@ -1,0 +1,334 @@
+{
+  "aggregate": {
+    "n": 8,
+    "faithfulness_rate": 1.0,
+    "mean_score": 5.0,
+    "negative_control": {
+      "n_corrupted": 24,
+      "judge_recall": 1.0,
+      "by_corruption": {
+        "doubled_price": {
+          "n": 8,
+          "caught": 8
+        },
+        "halved_price": {
+          "n": 8,
+          "caught": 8
+        },
+        "invented_fact": {
+          "n": 8,
+          "caught": 8
+        }
+      }
+    }
+  },
+  "messages": [
+    {
+      "url": "https://www.dealnews.com/products/Samsung/Samsung-Odyssey-G93-SC-Series-49-Free-Sync-OLED-Curved-Gaming-Monitor/459830.html?iref=rss-c39",
+      "message": "\ud83c\udfae Upgrade your gaming setup with the Samsung Odyssey G93SC! This 49-inch curved QD-OLED monitor features a stunning 5120 x 1440 resolution, 240Hz refresh rate, and lightning-fast 0.03ms response time\u2014all for just $855 (valued at $1399.99)! Don't miss out!",
+      "faithful": true,
+      "score": 5,
+      "issues": []
+    },
+    {
+      "url": "https://www.dealnews.com/Marshall-Acton-III-Bluetooth-Home-Speaker-for-160-free-shipping/21875102.html?iref=rss-c142",
+      "message": "\ud83c\udfb6 Elevate your home audio with the Marshall Acton III Bluetooth speaker! Enjoy stunning sound quality and stylish design for just $160 (valued at $269). Don't miss out on this perfect blend of form and function! \ud83c\udfe0\u2728",
+      "faithful": true,
+      "score": 5,
+      "issues": []
+    },
+    {
+      "url": "https://www.dealnews.com/NUU-B30-5-G-Unlocked-Android-Smartphone-for-150-free-shipping/21864297.html?iref=rss-c142",
+      "message": "Get the NUU B30, a sleek 5G unlocked Android smartphone, for just $150 (valued at $199.99)! Enjoy modern connectivity and reliability without breaking the bank. Don't miss out on this budget-friendly deal!",
+      "faithful": true,
+      "score": 5,
+      "issues": []
+    },
+    {
+      "url": "https://www.dealnews.com/products/Puro-Air/Puro-Air-100-i-Smart-HEPA-Air-Purifier/498879.html?iref=rss-f1912",
+      "message": "Breathe easier with the PuroAir 100i Smart HEPA Air Purifier! Now just $32 (valued at $99.99), it covers up to 550 sq. ft. and features smart home integration. Don't miss out on this deal for a healthier home!",
+      "faithful": true,
+      "score": 5,
+      "issues": []
+    },
+    {
+      "url": "https://www.dealnews.com/BTL-18-Travel-Laptop-Backpack-for-13-free-shipping/21875119.html?iref=rss-c39",
+      "message": "Grab the eco-friendly BTL 18\" Travel Laptop Backpack for just $13 (valued at $85)! With a dedicated sleeve for your 15\" laptop and a lightweight design, it's perfect for your travel needs. Don't miss out on this stylish and functional deal!",
+      "faithful": true,
+      "score": 5,
+      "issues": []
+    },
+    {
+      "url": "https://www.dealnews.com/products/Skullcandy/Skullcandy-Indy-Evo-True-Wireless-In-Ear-Headphones/158605.html?iref=rss-c142",
+      "message": "\ud83c\udfa7 Grab the Skullcandy Indy Evo True Wireless Earbuds for just $18 (valued at $29.99)! Enjoy 30 hours of battery life, customizable sound with three EQ modes, and built-in Tile technology to easily locate your earbuds. Don't miss out!",
+      "faithful": true,
+      "score": 5,
+      "issues": []
+    },
+    {
+      "url": "https://www.dealnews.com/Roseselsa-Wireless-Earbuds-for-7-free-shipping-w-Prime/21871392.html?iref=rss-c142",
+      "message": "\ud83c\udfa7 Grab the budget-friendly Roseselsa Wireless Earbuds for just $7! Enjoy balanced HIFI audio, clear calls with dual-mic noise cancellation, and a quick charge for up to 6 hours of playback. Perfect for everyday use and gaming!",
+      "faithful": true,
+      "score": 5,
+      "issues": []
+    },
+    {
+      "url": "https://www.dealnews.com/products/Logitech/Logitech-MK250-Bluetooth-Wireless-Keyboard-Mouse-Combo/504998.html?iref=rss-c39",
+      "message": "Get the Logitech MK250 Bluetooth Wireless Keyboard & Mouse Combo for just $22.99, down from an estimated $24.99! Enjoy a spill-resistant design and seamless Bluetooth connectivity for both Windows and macOS. Don't miss out on this durable and versatile combo!",
+      "faithful": true,
+      "score": 5,
+      "issues": []
+    }
+  ],
+  "corrupted": [
+    {
+      "url": "https://www.dealnews.com/products/Samsung/Samsung-Odyssey-G93-SC-Series-49-Free-Sync-OLED-Curved-Gaming-Monitor/459830.html?iref=rss-c39",
+      "corruption": "halved_price",
+      "caught": true,
+      "score": 1,
+      "issues": [
+        "The deal price is misstated as $427.50 instead of the correct $855.00.",
+        "The message claims a value of $1399.99, which is correct, but the savings are not mentioned and the price is significantly lower than the actual deal price.",
+        "The message does not mention the capped savings of $294.00."
+      ]
+    },
+    {
+      "url": "https://www.dealnews.com/products/Samsung/Samsung-Odyssey-G93-SC-Series-49-Free-Sync-OLED-Curved-Gaming-Monitor/459830.html?iref=rss-c39",
+      "corruption": "doubled_price",
+      "caught": true,
+      "score": 1,
+      "issues": [
+        "The deal price is misstated as $1,710.00 instead of the correct $855.00.",
+        "The message incorrectly states the deal price is higher than the estimated fair value, which is misleading."
+      ]
+    },
+    {
+      "url": "https://www.dealnews.com/products/Samsung/Samsung-Odyssey-G93-SC-Series-49-Free-Sync-OLED-Curved-Gaming-Monitor/459830.html?iref=rss-c39",
+      "corruption": "invented_fact",
+      "caught": true,
+      "score": 3,
+      "issues": [
+        "The message states a 'free 5-year extended warranty' and a '$50 gift card' which are not mentioned in the deal data.",
+        "The message does not mention the list price of $1149.00, which is relevant for context."
+      ]
+    },
+    {
+      "url": "https://www.dealnews.com/Marshall-Acton-III-Bluetooth-Home-Speaker-for-160-free-shipping/21875102.html?iref=rss-c142",
+      "corruption": "halved_price",
+      "caught": true,
+      "score": 1,
+      "issues": [
+        "The deal price is misstated as $80.00 instead of the correct $160.00.",
+        "The message does not mention the capped savings of $109.00."
+      ]
+    },
+    {
+      "url": "https://www.dealnews.com/Marshall-Acton-III-Bluetooth-Home-Speaker-for-160-free-shipping/21875102.html?iref=rss-c142",
+      "corruption": "doubled_price",
+      "caught": true,
+      "score": 1,
+      "issues": [
+        "The deal price is misstated as $320.00 instead of the correct $160.00.",
+        "The estimated fair value is misstated as $269.00 instead of the correct value of $269.00 (this is correct but the context is misleading).",
+        "The message does not mention the list price of $300.00 or the capped savings of $109.00."
+      ]
+    },
+    {
+      "url": "https://www.dealnews.com/Marshall-Acton-III-Bluetooth-Home-Speaker-for-160-free-shipping/21875102.html?iref=rss-c142",
+      "corruption": "invented_fact",
+      "caught": true,
+      "score": 2,
+      "issues": [
+        "The message states a 'valued at $269' which is correct, but it does not mention the list price of $300, which is relevant for context.",
+        "The message claims 'includes a free 5-year extended warranty and a $50 gift card,' which are not mentioned in the deal data and may mislead consumers about the offer."
+      ]
+    },
+    {
+      "url": "https://www.dealnews.com/NUU-B30-5-G-Unlocked-Android-Smartphone-for-150-free-shipping/21864297.html?iref=rss-c142",
+      "corruption": "halved_price",
+      "caught": true,
+      "score": 1,
+      "issues": [
+        "The deal price is misstated as $75.00 instead of the correct $150.00.",
+        "The message does not mention the capped savings of $49.99, which is relevant to the deal."
+      ]
+    },
+    {
+      "url": "https://www.dealnews.com/NUU-B30-5-G-Unlocked-Android-Smartphone-for-150-free-shipping/21864297.html?iref=rss-c142",
+      "corruption": "doubled_price",
+      "caught": true,
+      "score": 1,
+      "issues": [
+        "The deal price is misstated as $300.00 instead of the correct $150.00.",
+        "The list price is not mentioned, which is relevant for understanding the savings.",
+        "Capped savings of $49.99 is not mentioned, which is important for the deal context."
+      ]
+    },
+    {
+      "url": "https://www.dealnews.com/NUU-B30-5-G-Unlocked-Android-Smartphone-for-150-free-shipping/21864297.html?iref=rss-c142",
+      "corruption": "invented_fact",
+      "caught": true,
+      "score": 2,
+      "issues": [
+        "The message states a 'free 5-year extended warranty' which is not mentioned in the deal data.",
+        "The message includes a '$50 gift card' which is not part of the deal data."
+      ]
+    },
+    {
+      "url": "https://www.dealnews.com/products/Puro-Air/Puro-Air-100-i-Smart-HEPA-Air-Purifier/498879.html?iref=rss-f1912",
+      "corruption": "halved_price",
+      "caught": true,
+      "score": 1,
+      "issues": [
+        "The deal price is misstated as $16.00 instead of the correct $32.00.",
+        "The message implies a greater discount than what is available, overstating the savings."
+      ]
+    },
+    {
+      "url": "https://www.dealnews.com/products/Puro-Air/Puro-Air-100-i-Smart-HEPA-Air-Purifier/498879.html?iref=rss-f1912",
+      "corruption": "doubled_price",
+      "caught": true,
+      "score": 2,
+      "issues": [
+        "The deal price is misstated as $64.00 instead of the correct price of $32.00.",
+        "The message does not mention the capped savings of $48.00, which is relevant to the deal."
+      ]
+    },
+    {
+      "url": "https://www.dealnews.com/products/Puro-Air/Puro-Air-100-i-Smart-HEPA-Air-Purifier/498879.html?iref=rss-f1912",
+      "corruption": "invented_fact",
+      "caught": true,
+      "score": 2,
+      "issues": [
+        "The message states a $50 gift card is included, which is not mentioned in the deal data.",
+        "The message mentions a free 5-year extended warranty, which is also not mentioned in the deal data."
+      ]
+    },
+    {
+      "url": "https://www.dealnews.com/BTL-18-Travel-Laptop-Backpack-for-13-free-shipping/21875119.html?iref=rss-c39",
+      "corruption": "halved_price",
+      "caught": true,
+      "score": 1,
+      "issues": [
+        "The deal price is misstated as $6.50 instead of the correct $13.00.",
+        "The message does not mention the capped savings of $36.00, which is relevant to the deal.",
+        "The list price of $49.00 is not mentioned, which could provide context for the savings."
+      ]
+    },
+    {
+      "url": "https://www.dealnews.com/BTL-18-Travel-Laptop-Backpack-for-13-free-shipping/21875119.html?iref=rss-c39",
+      "corruption": "doubled_price",
+      "caught": true,
+      "score": 2,
+      "issues": [
+        "The deal price is misstated as $26.00 instead of the correct $13.00.",
+        "The savings are not accurately represented; the message does not mention the capped savings of $36.00."
+      ]
+    },
+    {
+      "url": "https://www.dealnews.com/BTL-18-Travel-Laptop-Backpack-for-13-free-shipping/21875119.html?iref=rss-c39",
+      "corruption": "invented_fact",
+      "caught": true,
+      "score": 2,
+      "issues": [
+        "The message states a 'free 5-year extended warranty' and a '$50 gift card', which are not mentioned in the deal data.",
+        "The message implies additional benefits (warranty and gift card) that are not part of the provided deal data."
+      ]
+    },
+    {
+      "url": "https://www.dealnews.com/products/Skullcandy/Skullcandy-Indy-Evo-True-Wireless-In-Ear-Headphones/158605.html?iref=rss-c142",
+      "corruption": "halved_price",
+      "caught": true,
+      "score": 2,
+      "issues": [
+        "The deal price is misstated as $9.00 instead of the correct $18.00.",
+        "The message does not mention the capped savings of $11.99, which is relevant to the deal."
+      ]
+    },
+    {
+      "url": "https://www.dealnews.com/products/Skullcandy/Skullcandy-Indy-Evo-True-Wireless-In-Ear-Headphones/158605.html?iref=rss-c142",
+      "corruption": "doubled_price",
+      "caught": true,
+      "score": 1,
+      "issues": [
+        "Incorrect deal price stated as $36.00 instead of $18.00",
+        "Estimated fair value stated as $29.99 is correct, but it is misrepresented as the deal price",
+        "Savings are not mentioned, leading to potential misunderstanding of the deal's value"
+      ]
+    },
+    {
+      "url": "https://www.dealnews.com/products/Skullcandy/Skullcandy-Indy-Evo-True-Wireless-In-Ear-Headphones/158605.html?iref=rss-c142",
+      "corruption": "invented_fact",
+      "caught": true,
+      "score": 2,
+      "issues": [
+        "The message states a 'free 5-year extended warranty' which is not mentioned in the deal data.",
+        "The message includes a '$50 gift card' which is not part of the deal data."
+      ]
+    },
+    {
+      "url": "https://www.dealnews.com/Roseselsa-Wireless-Earbuds-for-7-free-shipping-w-Prime/21871392.html?iref=rss-c142",
+      "corruption": "halved_price",
+      "caught": true,
+      "score": 2,
+      "issues": [
+        "The deal price is misstated as $3.50 instead of the correct price of $7.00.",
+        "The message does not mention the estimated fair value of $13.88 or the list price of $16.00, which are relevant for context.",
+        "The savings are not stated, which is important for understanding the deal."
+      ]
+    },
+    {
+      "url": "https://www.dealnews.com/Roseselsa-Wireless-Earbuds-for-7-free-shipping-w-Prime/21871392.html?iref=rss-c142",
+      "corruption": "doubled_price",
+      "caught": true,
+      "score": 1,
+      "issues": [
+        "Incorrect deal price stated as $14.00 instead of $7.00",
+        "Estimated fair value not mentioned",
+        "List price not mentioned",
+        "Capped savings not mentioned"
+      ]
+    },
+    {
+      "url": "https://www.dealnews.com/Roseselsa-Wireless-Earbuds-for-7-free-shipping-w-Prime/21871392.html?iref=rss-c142",
+      "corruption": "invented_fact",
+      "caught": true,
+      "score": 2,
+      "issues": [
+        "The message states that the deal includes a free 5-year extended warranty, which is not mentioned in the deal data.",
+        "The message mentions a $50 gift card, which is also not part of the deal data."
+      ]
+    },
+    {
+      "url": "https://www.dealnews.com/products/Logitech/Logitech-MK250-Bluetooth-Wireless-Keyboard-Mouse-Combo/504998.html?iref=rss-c39",
+      "corruption": "halved_price",
+      "caught": true,
+      "score": 1,
+      "issues": [
+        "The deal price is misstated as $11.49 instead of the correct $22.99.",
+        "The message overstates the savings, claiming a price drop from $24.99 to $11.49, which is inaccurate. The actual deal price is $22.99, not $11.49."
+      ]
+    },
+    {
+      "url": "https://www.dealnews.com/products/Logitech/Logitech-MK250-Bluetooth-Wireless-Keyboard-Mouse-Combo/504998.html?iref=rss-c39",
+      "corruption": "doubled_price",
+      "caught": true,
+      "score": 1,
+      "issues": [
+        "The deal price is misstated as $45.98 instead of the correct $22.99.",
+        "The estimated fair value is incorrectly stated as $24.99 instead of being presented as the list price of $30.00.",
+        "Savings are not mentioned correctly; the message implies a higher discount than what is available."
+      ]
+    },
+    {
+      "url": "https://www.dealnews.com/products/Logitech/Logitech-MK250-Bluetooth-Wireless-Keyboard-Mouse-Combo/504998.html?iref=rss-c39",
+      "corruption": "invented_fact",
+      "caught": true,
+      "score": 2,
+      "issues": [
+        "The message states that the deal includes a free 5-year extended warranty, which is not mentioned in the deal data.",
+        "The message mentions a $50 gift card, which is also not part of the deal data."
+      ]
+    }
+  ]
+}

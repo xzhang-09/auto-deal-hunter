@@ -1,9 +1,8 @@
-import json
 from typing import Optional, List
 from openai import OpenAI
 from agents.agent import Agent
-from infra.config import LLM_MAX_RETRIES, LLM_MODEL, LLM_SEED, LLM_TEMPERATURE
-from infra import usage
+from infra.config import LLM_MAX_RETRIES, SCANNER_MODEL
+from infra.openai_compat import parse_structured
 from core.identity_policy import per_unit_fields
 from core.source_ids import deal_id
 from domain.deal import DealSelection
@@ -11,7 +10,7 @@ from ingest.scraper import ScrapedDeal
 
 
 class ScannerAgent(Agent):
-    MODEL = LLM_MODEL
+    MODEL = SCANNER_MODEL
 
     SYSTEM_PROMPT = """You identify and summarize the 5 most detailed new retail deals from a list.
 Respond strictly in JSON with no explanation. Provide price as a number. Include list_price when supplied; use null when unknown. If price isn't clear, exclude that deal.
@@ -56,33 +55,13 @@ Deals:
             return None
         user_prompt = self.make_user_prompt(scraped)
         self.log("Calling OpenAI with Structured Outputs")
-        try:
-            result = self.openai.chat.completions.parse(
-                model=self.MODEL,
-                messages=[
-                    {"role": "system", "content": self.SYSTEM_PROMPT},
-                    {"role": "user", "content": user_prompt},
-                ],
-                response_format=DealSelection,
-                temperature=LLM_TEMPERATURE,
-                seed=LLM_SEED,
-            )
-            usage.TRACKER.record(self.MODEL, getattr(result, "usage", None))
-            parsed = result.choices[0].message.parsed
-        except AttributeError:
-            result = self.openai.chat.completions.create(
-                model=self.MODEL,
-                messages=[
-                    {"role": "system", "content": self.SYSTEM_PROMPT + " Respond with valid JSON only."},
-                    {"role": "user", "content": user_prompt},
-                ],
-                response_format={"type": "json_object"},
-                temperature=LLM_TEMPERATURE,
-                seed=LLM_SEED,
-            )
-            usage.TRACKER.record(self.MODEL, getattr(result, "usage", None))
-            data = json.loads(result.choices[0].message.content or "{}")
-            parsed = DealSelection(**data)
+        parsed = parse_structured(
+            self.openai,
+            model=self.MODEL,
+            instructions=self.SYSTEM_PROMPT,
+            user_prompt=user_prompt,
+            text_format=DealSelection,
+        )
         parsed.deals = [d for d in parsed.deals if d.price > 0]
         # list_price comes from the scraper's structured extraction (price widget / meta), not
         # the LLM. Re-attach it by product id so gpt-4o-mini can't drop or alter it; deal_id is

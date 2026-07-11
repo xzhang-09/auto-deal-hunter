@@ -1,7 +1,7 @@
 import os
 from agents.agent import Agent
-from infra.config import LLM_MAX_RETRIES, LLM_MODEL, LLM_TEMPERATURE
-from infra import usage
+from infra.config import LLM_MAX_RETRIES, MESSAGING_MODEL
+from infra.openai_compat import generate_text
 from openai import OpenAI
 from domain.deal import Opportunity
 import requests
@@ -13,7 +13,7 @@ TELEGRAM_URL_TEMPLATE = "https://api.telegram.org/bot{token}/sendMessage"
 class MessagingAgent(Agent):
     name = "Messaging Agent"
     color = Agent.WHITE
-    MODEL = LLM_MODEL
+    MODEL = MESSAGING_MODEL
 
     def __init__(self):
         self.log("Initializing")
@@ -80,13 +80,7 @@ class MessagingAgent(Agent):
             f"Item: {description}\nPrice: {deal_price}\nEst. value: {estimated_true_value}\n"
             "Respond only with the message."
         )
-        response = self.client.chat.completions.create(
-            model=self.MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=LLM_TEMPERATURE,
-        )
-        usage.TRACKER.record(self.MODEL, getattr(response, "usage", None))
-        return response.choices[0].message.content
+        return generate_text(self.client, model=self.MODEL, user_prompt=prompt)
 
     def notify(
         self,

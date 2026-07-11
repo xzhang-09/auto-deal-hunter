@@ -14,7 +14,7 @@ from openai import OpenAI
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-from infra.config import LLM_MAX_RETRIES, LLM_MODEL, LLM_SEED, LLM_TEMPERATURE
+from infra.config import LLM_MAX_RETRIES, LLM_SEED, LLM_TEMPERATURE, MCP_MODEL
 from core.scoring import best_opportunity
 from core.source_ids import deal_id
 from infra.paths import DEFAULT_VECTORSTORE_PATH, PROJECT_ROOT
@@ -23,7 +23,7 @@ from domain.deal import Deal, Opportunity
 
 load_dotenv(override=True)
 
-MODEL = LLM_MODEL
+MODEL = MCP_MODEL
 MAX_AGENT_STEPS = 8
 _ESTIMATE_RE = re.compile(r"\$\s*([0-9][0-9,]*(?:\.[0-9]+)?)")
 SYSTEM_MSG = "You find great deals using your tools and notify the user of the best bargain."
@@ -149,6 +149,10 @@ async def run_agent(memory: list) -> tuple[list, Opportunity | None]:
             ]
 
             client = OpenAI(max_retries=LLM_MAX_RETRIES)
+            # This opt-in demo loop deliberately stays on Chat Completions rather than the
+            # infra.openai_compat layer: its message list interleaves assistant tool_calls with
+            # role="tool" results, a shape that would need a separate Responses-API translation
+            # for no behavioral gain on a demonstration path.
             messages = [
                 {"role": "system", "content": SYSTEM_MSG},
                 {"role": "user", "content": USER_MSG},
