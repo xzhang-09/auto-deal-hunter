@@ -1,0 +1,89 @@
+[
+  {
+    "model": "gpt-4o-mini",
+    "n_selected": 5,
+    "n_judged": 5,
+    "faithfulness_rate": 0.8,
+    "mean_score": 4.4,
+    "scan_prompt_tokens": 3255,
+    "scan_completion_tokens": 723,
+    "scan_cost_usd": 0.000922,
+    "verdicts": [
+      {
+        "url": "https://www.dealnews.com/Wallet-Case-w-Card-Holder-Kickstand-for-Samsung-Galaxy-A16-for-8-free-shipping-w-Prime/21891943.html?iref=rss-c142",
+        "faithful": true,
+        "score": 5,
+        "issues": []
+      },
+      {
+        "url": "https://www.dealnews.com/products/Waterproof-Bluetooth-Shower-Speaker-w-RGB-Lights/507453.html?iref=rss-c142",
+        "faithful": true,
+        "score": 5,
+        "issues": []
+      },
+      {
+        "url": "https://www.dealnews.com/Bose-Sound-Link-Flex-2-nd-Gen-Portable-Bluetooth-Speaker-for-99-free-shipping/21891893.html?iref=rss-c142",
+        "faithful": false,
+        "score": 2,
+        "issues": [
+          "The summary includes additional specifications (high-quality sound, lightweight, water-resistant, long battery life) that are not mentioned in the raw listing, which could mislead about the product's features.",
+          "The summary does not mention the price savings or the context of the deal (e.g., comparison to list price or competitors) that is present in the raw listing."
+        ]
+      },
+      {
+        "url": "https://www.dealnews.com/3-In-1-Wireless-Charging-Station-for-15-free-shipping-w-Prime/21891889.html?iref=rss-c142",
+        "faithful": true,
+        "score": 5,
+        "issues": []
+      },
+      {
+        "url": "https://www.dealnews.com/products/Talix/Talix-10-000-m-Ah-3-Port-USB-C-Portable-Charger/501259.html?iref=rss-c142",
+        "faithful": true,
+        "score": 5,
+        "issues": []
+      }
+    ]
+  },
+  {
+    "model": "gpt-4.1-nano",
+    "n_selected": 5,
+    "n_judged": 5,
+    "faithfulness_rate": 1.0,
+    "mean_score": 5.0,
+    "scan_prompt_tokens": 3495,
+    "scan_completion_tokens": 635,
+    "scan_cost_usd": 0.000603,
+    "verdicts": [
+      {
+        "url": "https://www.dealnews.com/Wallet-Case-w-Card-Holder-Kickstand-for-Samsung-Galaxy-A16-for-8-free-shipping-w-Prime/21891943.html?iref=rss-c142",
+        "faithful": true,
+        "score": 5,
+        "issues": []
+      },
+      {
+        "url": "https://www.dealnews.com/products/Waterproof-Bluetooth-Shower-Speaker-w-RGB-Lights/507453.html?iref=rss-c142",
+        "faithful": true,
+        "score": 5,
+        "issues": []
+      },
+      {
+        "url": "https://www.dealnews.com/Bose-Sound-Link-Flex-2-nd-Gen-Portable-Bluetooth-Speaker-for-99-free-shipping/21891893.html?iref=rss-c142",
+        "faithful": true,
+        "score": 5,
+        "issues": []
+      },
+      {
+        "url": "https://www.dealnews.com/3-In-1-Wireless-Charging-Station-for-15-free-shipping-w-Prime/21891889.html?iref=rss-c142",
+        "faithful": true,
+        "score": 5,
+        "issues": []
+      },
+      {
+        "url": "https://www.dealnews.com/products/Talix/Talix-10-000-m-Ah-3-Port-USB-C-Portable-Charger/501259.html?iref=rss-c142",
+        "faithful": true,
+        "score": 5,
+        "issues": []
+      }
+    ]
+  }
+]

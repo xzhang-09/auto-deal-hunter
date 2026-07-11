@@ -2,7 +2,7 @@ import types
 import unittest
 
 from domain.deal import Deal, Opportunity
-from evaluation.judge import MessageJudge, corrupted_variants, MessageVerdict
+from evaluation.judge import MessageJudge, ScanJudge, corrupted_variants, MessageVerdict
 
 
 class MessageJudgeTests(unittest.TestCase):
@@ -76,6 +76,29 @@ class MessageJudgeTests(unittest.TestCase):
         variants = corrupted_variants("Speaker for $80.")
         self.assertTrue(variants["invented_fact"].startswith("Speaker for $80."))
         self.assertIn("$50 gift card", variants["invented_fact"])
+
+    def test_scan_judge_prompt_includes_listing_and_output(self):
+        deal = Deal(
+            product_description="Wireless mouse with USB receiver",
+            price=12.5,
+            url="https://example.test/mouse",
+        )
+        prompt = ScanJudge._prompt("Title: Wireless Mouse\nDetails: $12.50", deal)
+        self.assertIn("Title: Wireless Mouse", prompt)
+        self.assertIn("Wireless mouse with USB receiver", prompt)
+        self.assertIn("$12.50", prompt)
+        self.assertNotIn("PER UNIT", prompt)
+
+    def test_scan_judge_prompt_notes_per_unit_rebasing(self):
+        deal = Deal(
+            product_description="AA batteries",
+            price=0.5,
+            url="https://example.test/batteries",
+            quantity=36,
+        )
+        prompt = ScanJudge._prompt("Title: AA 36-pack for $18", deal)
+        self.assertIn("Pack size: 36", prompt)
+        self.assertIn("PER UNIT", prompt)
 
     def _opportunity(self):
         return Opportunity(

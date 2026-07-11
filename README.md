@@ -191,6 +191,22 @@ the trade-off: the scanner and message writer are good candidates for cheaper mo
 pricer and judge should stay on the strongest affordable model because they affect numeric
 valuation and quality gates.
 
+That trade-off is measurable, not hypothetical. `scripts/compare_scanner_models.py` feeds the
+same scraped batch (via the HTTP cache) to each candidate scanner model, judges every selected
+deal's summary and price against the raw listing with `ScanJudge` (a fixed `JUDGE_MODEL`
+referee), and prices each model's tokens from its own rate sheet:
+
+```bash
+python -m scripts.compare_scanner_models --models gpt-4o-mini gpt-4.1-nano --output-json docs/eval/scanner_models.json
+```
+
+One local batch (`docs/eval/scanner_models.json`): both models selected the **same five
+deals**; `gpt-4.1-nano` scored 5/5 faithful at ~35% lower scan cost, while `gpt-4o-mini` had
+one summary flagged for adding specs not present in the listing (injected from prior product
+knowledge — exactly the failure the judge exists to catch). A single RSS batch with five
+selections per model is directional, not conclusive: rerun on a few different batches before
+setting `SCANNER_MODEL=gpt-4.1-nano`, but the mechanism and the measurement are in place.
+
 The scanner, pricer, notification writer, and judge use the Responses API by default. Set
 `OPENAI_API_STYLE=chat` when pointing `OPENAI_BASE_URL` at an OpenAI-compatible endpoint that
 only implements Chat Completions. The optional MCP tool-calling demo loop still uses Chat

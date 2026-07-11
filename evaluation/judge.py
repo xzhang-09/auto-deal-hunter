@@ -47,6 +47,54 @@ def corrupted_variants(message: str) -> dict[str, str]:
     return variants
 
 
+class ScanVerdict(BaseModel):
+    faithful: bool = Field(description="Whether the scanner's summary and price match the raw listing")
+    issues: list[str] = Field(default_factory=list, description="Specific factual issues found")
+    score: int = Field(description="Faithfulness score from 1 (bad) to 5 (excellent)")
+
+
+class ScanJudge:
+    """Judges whether a scanner-selected deal is faithful to the raw scraped listing.
+
+    Used by the model-tiering experiment (scripts/compare_scanner_models.py): a cheaper
+    scanner model is only acceptable if its summaries and extracted prices stay grounded
+    in the listing, and that has no numeric ground truth -- hence a judge."""
+
+    def __init__(self, client=None, model: str = JUDGE_MODEL):
+        self.client = client or OpenAI(max_retries=LLM_MAX_RETRIES)
+        self.model = model
+
+    def judge(self, listing_text: str, deal) -> ScanVerdict:
+        return parse_structured(
+            self.client,
+            model=self.model,
+            user_prompt=self._prompt(listing_text, deal),
+            text_format=ScanVerdict,
+        )
+
+    @staticmethod
+    def _prompt(listing_text: str, deal) -> str:
+        quantity = getattr(deal, "quantity", None) or 1
+        quantity_note = (
+            f"- Pack size: {quantity} (the price above is PER UNIT, rebased from the pack price)\n"
+            if quantity > 1
+            else ""
+        )
+        return (
+            "You are judging whether a deal scanner's output is faithful to the raw listing "
+            "it was extracted from.\n"
+            "Check that the summary describes the same product without inventing specs, and "
+            "that the extracted price appears in (or follows arithmetically from) the listing. "
+            "Summarization and omission are fine; contradiction and fabrication are not.\n\n"
+            "Raw listing:\n"
+            f"{listing_text}\n\n"
+            "Scanner output:\n"
+            f"- Summary: {deal.product_description}\n"
+            f"- Price: ${deal.price:.2f}\n"
+            f"{quantity_note}"
+        )
+
+
 class MessageJudge:
     def __init__(self, client=None, model: str = JUDGE_MODEL):
         self.client = client or OpenAI(max_retries=LLM_MAX_RETRIES)

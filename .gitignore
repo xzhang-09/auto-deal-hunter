@@ -16,3 +16,4 @@ data/eval_holdout.json
 data/http_cache.sqlite
 data/http_cache.sqlite-*
 data/eval_metrics.json
+data/embedding_compare/
