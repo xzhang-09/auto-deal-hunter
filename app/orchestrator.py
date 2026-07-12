@@ -12,7 +12,11 @@ import numpy as np
 
 from app.pipeline import DealPipeline
 from infra import usage
-from infra.config import DEALS_TTL_HOURS
+from infra.config import (
+    DEALS_TTL_HOURS,
+    TELEGRAM_FEEDBACK_ENABLED,
+    TELEGRAM_POLL_TIMEOUT_SECONDS,
+)
 from infra.log_utils import BG_BLUE, RESET, WHITE
 from core.opportunity_store import OpportunityStore
 from infra.paths import DEFAULT_DEALS_DB_PATH, DEFAULT_MEMORY_PATH, DEFAULT_VECTORSTORE_PATH, ensure_data_dirs
@@ -64,6 +68,20 @@ class Orchestrator:
         self.memory = self.read_memory()
         self.collection = client.get_or_create_collection("products")
         self._pipeline = DealPipeline(self.collection)
+        self._telegram_feedback = None
+        if TELEGRAM_FEEDBACK_ENABLED:
+            token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+            chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
+            if token and chat_id:
+                from infra.telegram_feedback import TelegramFeedbackPoller
+
+                self._telegram_feedback = TelegramFeedbackPoller(
+                    token,
+                    chat_id,
+                    self.opportunity_store,
+                    TELEGRAM_POLL_TIMEOUT_SECONDS,
+                )
+                self._telegram_feedback.start()
 
     def read_memory(self) -> List[Opportunity]:
         store = getattr(self, "opportunity_store", OpportunityStore(self.DEALS_DB_PATH))

@@ -85,6 +85,13 @@ class NotifyConfidenceGateTests(unittest.TestCase):
         self.assertIn("sent", result.lower())
         self.assertEqual(len(sent), 1)
 
+    def test_list_price_is_forwarded_to_messenger(self):
+        module, sent = self._load()
+
+        module.notify_deal("desc", 50.0, 100.0, "https://x.test/1.html", 80.0)
+
+        self.assertEqual(sent[0][4], 80.0)
+
     def test_unknown_confidence_is_not_gated(self):
         # A deal that was never estimated (no confidence recorded) is pushed, not suppressed.
         module, sent = self._load()

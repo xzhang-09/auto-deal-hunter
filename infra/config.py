@@ -87,6 +87,16 @@ VECTOR_SPACE = "cosine"
 RERANK_MODE = os.getenv("RERANK_MODE", "off").lower()
 RERANK_CANDIDATES = _get_int("RERANK_CANDIDATES", 20)
 
+# Telegram feedback uses a background long-polling thread. Keep it opt-in so importing or
+# testing the app never starts network activity merely because notification credentials exist.
+TELEGRAM_FEEDBACK_ENABLED = os.getenv("TELEGRAM_FEEDBACK_ENABLED", "false").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+TELEGRAM_POLL_TIMEOUT_SECONDS = _get_int("TELEGRAM_POLL_TIMEOUT_SECONDS", 25)
+
 # Deals are ephemeral: DealNews edits/expires listings, so a stored opportunity is a
 # snapshot that goes stale. Opportunities not re-confirmed within this window are pruned
 # so the store reflects currently-live deals instead of growing without bound. Set to 0

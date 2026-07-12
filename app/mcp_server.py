@@ -88,6 +88,7 @@ def notify_deal(
     deal_price: float,
     estimated_true_value: float,
     url: str,
+    list_price: float | None = None,
 ) -> str:
     """Send a push notification about a compelling deal. Call once per run for the best deal."""
     if estimated_true_value <= deal_price:
@@ -109,7 +110,9 @@ def notify_deal(
             f"{RAG_MIN_CONFIDENCE:.2f} threshold. The deal is still saved."
         )
     agents = _get_agents()
-    agents["messenger"].notify(description, deal_price, estimated_true_value, url)
+    agents["messenger"].notify(
+        description, deal_price, estimated_true_value, url, list_price
+    )
     return "Notification sent successfully"
 
 

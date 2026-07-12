@@ -189,6 +189,10 @@ async def run_agent(memory: list) -> tuple[list, Opportunity | None]:
                         args = json.loads(tc.function.arguments or "{}")
                         if name == "scan_deals":
                             args["memory_json"] = json.dumps(memory_data)
+                        if name == "notify_deal" and "list_price" not in args:
+                            scanned = scanned_deals_by_url.get(args.get("url", ""), {})
+                            if scanned.get("list_price") is not None:
+                                args["list_price"] = scanned["list_price"]
                         result = await session.call_tool(name, args)
                         content = ""
                         if result.content:

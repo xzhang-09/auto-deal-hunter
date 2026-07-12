@@ -105,14 +105,29 @@ class OpportunityStore:
                 (deal_id(opportunity.deal.url), opportunity.deal.url, json.dumps(opportunity.model_dump())),
             )
 
-    def mark_feedback(self, url: str, label: str) -> None:
+    def mark_feedback(self, url: str, label: str) -> bool:
+        return self.mark_feedback_by_id(deal_id(url), label)
+
+    def mark_feedback_by_id(self, dedup_id: str, label: str) -> bool:
         if label not in VALID_FEEDBACK:
             raise ValueError(f"Unknown feedback label '{label}'. Use good_deal or bad_deal.")
         with self._connect() as conn:
-            conn.execute(
+            cursor = conn.execute(
                 "UPDATE opportunities SET feedback = ? WHERE dedup_id = ?",
-                (label, deal_id(url)),
+                (label, dedup_id),
             )
+        return cursor.rowcount > 0
+
+    def feedback_map(self) -> dict[str, str]:
+        """Labels keyed by dedup_id, for rendering per-row feedback state in the UI.
+
+        Lean on purpose: no payload deserialization, so the table renderer can call it on
+        every refresh."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT dedup_id, feedback FROM opportunities WHERE feedback IS NOT NULL"
+            ).fetchall()
+        return {dedup: feedback for dedup, feedback in rows if feedback in VALID_FEEDBACK}
 
     def feedback_counts(self) -> dict[str, int]:
         with self._connect() as conn:

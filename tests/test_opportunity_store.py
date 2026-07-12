@@ -65,6 +65,34 @@ class OpportunityStoreTests(unittest.TestCase):
 
             self.assertEqual(store.feedback_counts(), {"good_deal": 1, "bad_deal": 0, "unlabeled": 0})
 
+    def test_mark_feedback_by_id_updates_existing_row_and_reports_missing(self):
+        from core.source_ids import deal_id
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = OpportunityStore(Path(tmpdir) / "deals.sqlite")
+            opportunity = self._opportunity(url="https://example.test/deal/1.html")
+            store.append(opportunity)
+
+            self.assertTrue(store.mark_feedback_by_id(deal_id(opportunity.deal.url), "good_deal"))
+            self.assertTrue(store.mark_feedback_by_id(deal_id(opportunity.deal.url), "bad_deal"))
+            self.assertFalse(store.mark_feedback_by_id("missing", "good_deal"))
+            self.assertEqual(store.feedback_counts()["bad_deal"], 1)
+
+    def test_feedback_map_returns_labels_by_dedup_id(self):
+        from core.source_ids import deal_id
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = OpportunityStore(Path(tmpdir) / "deals.sqlite")
+            labeled = self._opportunity(url="https://example.test/deal/1.html")
+            unlabeled = self._opportunity(url="https://example.test/deal/2.html")
+            store.append(labeled)
+            store.append(unlabeled)
+            store.mark_feedback(labeled.deal.url, "good_deal")
+
+            mapping = store.feedback_map()
+
+            self.assertEqual(mapping, {deal_id(labeled.deal.url): "good_deal"})
+
     def test_list_feedback_rows_pairs_opportunity_and_label(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             store = OpportunityStore(Path(tmpdir) / "deals.sqlite")
