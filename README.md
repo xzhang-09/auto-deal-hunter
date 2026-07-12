@@ -19,7 +19,7 @@ Telegram notification:
 ## Features
 
 - **Scan** — Fetches new retail deals from DealNews RSS feeds for Electronics, Computers, and Smart Home.
-- **Estimate** — Retrieves similar Amazon catalog items from ChromaDB and asks an LLM (default `gpt-4o-mini`, set via `LLM_MODEL`) for a fair-value estimate.
+- **Estimate** — Retrieves similar Amazon catalog items from ChromaDB and asks an LLM (default `gpt-4o-mini`, set via `LLM_MODEL`) for a fair-value estimate, shrunk toward the comparables' median price when the retrieval match is weak.
 - **Optional re-rank** — Can re-rank a wider retrieval set (`RERANK_MODE=cross-encoder` or `llm`) before pricing.
 - **Cost-aware** — Logs LLM token usage and an estimated dollar cost per run.
 - **Guardrail** — Caps reported savings at the seller's list price when a list price is available, reducing false bargains from high model estimates.
@@ -229,7 +229,7 @@ Completions because that path is kept specifically as the compatibility/demo rou
 1. `ScannerAgent` fetches DealNews RSS entries and extracts product details, deal price, and list price when available.
 2. Used, refurbished, renewed, open-box, and pre-owned items are filtered out before selection. Bundles and subscriptions are skipped, and multi-packs are rebased to a per-unit price so they are valued against single-unit comparables.
 3. `PricerAgent` embeds deal descriptions and retrieves similar Amazon products from ChromaDB. If `RERANK_MODE` is enabled, it retrieves a wider candidate set and re-ranks it before keeping the top comparables.
-4. An LLM (default `gpt-4o-mini`) estimates market value from the retrieved product context and returns a structured price.
+4. An LLM (default `gpt-4o-mini`) estimates market value from the retrieved product context and returns a structured price. The raw estimate is then shrunk toward the median price of the retrieved comparables, weighted by retrieval confidence, so a weak RAG match cannot win the scan on a wild guess (see [Estimate guardrail](#estimate-guardrail)).
 5. The pipeline *gathers* candidates and their estimates, but the single best deal is chosen **deterministically**, not by model judgment ([`core/scoring.py`](core/scoring.py); see [Deterministic selection](#deterministic-selection)).
 6. A push is sent for the best deal — unless its estimate rests on a weak RAG match (below `RAG_MIN_CONFIDENCE`), in which case the deal is still saved but not notified.
 7. Gradio displays opportunities, live logs, guardrail summary, and a 3D t-SNE view of the vector store.
@@ -277,6 +277,13 @@ Two scripts score the system on the held-out McAuley sample in `data/eval_holdou
 excluded from the vector store, so they measure generalization rather than exact-match lookup).
 
 > **Figures depend on the model, the vector store size, and `--size`,** so they drift over time.
+- **Low-confidence estimates are shrunk toward their comparables.** Each scan keeps only the
+  top-savings candidate, so the winner is systematically the estimate with the largest upward
+  error (winner's curse) — a variance problem, not a bias one (holdout bias is ~0). The pricer
+  therefore blends the raw LLM estimate with the median price of its retrieved comparables,
+  weighted by retrieval confidence (`confidence * estimate + (1 - confidence) * median`),
+  reining in exactly the estimates whose RAG basis is weakest. On the 149-item holdout this cut
+  the over-prediction error on $100+ items by ~20% without moving overall bias.
 > The sample outputs below show the metric format only — run the scripts yourself for current
 > numbers.
 

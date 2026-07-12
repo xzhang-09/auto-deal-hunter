@@ -72,8 +72,32 @@ class RetrievalConfidenceTests(unittest.TestCase):
         agent = _agent_returning('{"price": 80.0}')
         agent.find_similars = lambda description: (["c"], [70.0], [0.2, 0.5])
         estimate, confidence = agent.estimate_with_confidence("a product")
-        self.assertEqual(estimate, 80.0)
+        # Raw 80 shrunk toward the comparable median 70 at confidence 0.8.
+        self.assertAlmostEqual(estimate, 0.8 * 80.0 + 0.2 * 70.0)
         self.assertAlmostEqual(confidence, 0.8)
+
+
+class ShrinkEstimateTests(unittest.TestCase):
+    def test_high_confidence_keeps_estimate_close_to_raw(self):
+        shrunk = PricerAgent._shrink_estimate(100.0, [60.0, 80.0, 90.0], 0.95)
+        self.assertAlmostEqual(shrunk, 0.95 * 100.0 + 0.05 * 80.0)
+
+    def test_low_confidence_pulls_toward_comparable_median(self):
+        # A weak RAG match must not win the scan on a wild high guess: the neighbors dominate.
+        shrunk = PricerAgent._shrink_estimate(1400.0, [400.0, 450.0, 500.0], 0.2)
+        self.assertAlmostEqual(shrunk, 0.2 * 1400.0 + 0.8 * 450.0)
+
+    def test_no_comparables_keeps_raw_estimate(self):
+        self.assertEqual(PricerAgent._shrink_estimate(120.0, [], 0.0), 120.0)
+
+    def test_missing_distances_keep_raw_estimate(self):
+        # Distances absent (legacy store metadata) -> confidence 0 signals missing data, not a
+        # bad match; the pipeline must not replace the LLM estimate with the bare median.
+        agent = _agent_returning('{"price": 80.0}')
+        agent.find_similars = lambda description: (["c"], [10.0], [])
+        estimate, confidence = agent.estimate_with_confidence("a product")
+        self.assertEqual(estimate, 80.0)
+        self.assertEqual(confidence, 0.0)
 
 
 class DistanceSpaceGuardTests(unittest.TestCase):

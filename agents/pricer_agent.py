@@ -1,5 +1,6 @@
 import json
 import re
+import statistics
 from typing import List
 from openai import OpenAI
 from pydantic import BaseModel
@@ -140,6 +141,22 @@ class PricerAgent(Agent):
         return max(0.0, min(1.0, 1.0 - nearest))
 
     @staticmethod
+    def _shrink_estimate(raw: float, prices: List[float], confidence: float) -> float:
+        """Pull a raw LLM estimate toward the comparables' median price, weighted by confidence.
+
+        Downstream selection takes the max over candidates' savings each scan, so the winner is
+        systematically the estimate with the largest upward error (winner's curse) -- a variance
+        problem, not a bias one (holdout bias is ~0). Shrinking low-confidence estimates toward
+        the median of the retrieved comparables reduces that variance exactly where the RAG
+        match is weakest: a well-matched product keeps its estimate almost unchanged, while a
+        poorly-matched one is reined in by its neighbors instead of winning on a wild guess.
+        Requires actual comparables; with none (or no distances, where confidence degrades to 0
+        for lack of metadata rather than lack of a match) the raw estimate stands."""
+        if not prices:
+            return raw
+        return confidence * raw + (1.0 - confidence) * statistics.median(prices)
+
+    @staticmethod
     def get_price(s: str) -> float:
         try:
             data = json.loads(s)
@@ -201,8 +218,11 @@ class PricerAgent(Agent):
                 f"uninformative for this product. Description: {description[:80]!r}"
             )
         confidence = self._retrieval_confidence(distances)
-        self.log(f"Predicted ${result:.2f} (retrieval confidence {confidence:.2f})")
-        return result, confidence
+        estimate = self._shrink_estimate(result, prices, confidence) if distances else result
+        if estimate != result:
+            self.log(f"Shrunk raw estimate ${result:.2f} toward comparable median")
+        self.log(f"Predicted ${estimate:.2f} (retrieval confidence {confidence:.2f})")
+        return estimate, confidence
 
 
 class PriceEstimate(BaseModel):
