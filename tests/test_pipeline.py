@@ -29,6 +29,11 @@ class DealPipelineTests(unittest.TestCase):
         self._original_threshold = pipeline_module.RAG_MIN_CONFIDENCE
         pipeline_module.RAG_MIN_CONFIDENCE = 0.15
         self.addCleanup(setattr, pipeline_module, "RAG_MIN_CONFIDENCE", self._original_threshold)
+        self._original_ratio = pipeline_module.ESTIMATE_MISMATCH_RATIO
+        pipeline_module.ESTIMATE_MISMATCH_RATIO = 2.0
+        self.addCleanup(
+            setattr, pipeline_module, "ESTIMATE_MISMATCH_RATIO", self._original_ratio
+        )
 
     def _pipeline(self, deals, estimates, sent):
         pipeline = DealPipeline(collection=object())
@@ -60,6 +65,7 @@ class DealPipelineTests(unittest.TestCase):
         self.assertEqual(best.retrieval_confidence, 0.9)
         self.assertEqual(len(sent), 1)
         self.assertEqual(sent[0][3], "https://x.test/1.html")  # notify(..., url)
+        self.assertEqual(sent[0][4], 100.0)  # notify(..., list_price)
 
     def test_low_confidence_best_is_saved_but_not_pushed(self):
         sent = []
@@ -71,6 +77,34 @@ class DealPipelineTests(unittest.TestCase):
 
         self.assertIsNotNone(best)  # still returned -> caller saves it
         self.assertEqual(sent, [])  # but no push
+
+    def test_comparables_mismatch_zeroes_confidence_and_withholds_push(self):
+        sent = []
+        # Estimate at 26x list price (the battery-vs-chargers case): kept as best (savings
+        # are capped at list - price and real), but confidence is zeroed so no push goes out.
+        deals = [_deal("A", 24.0, "https://x.test/1.html", list_price=39.0)]
+        estimates = {"A": (1003.43, 0.64)}
+        pipeline = self._pipeline(deals, estimates, sent)
+
+        memory, best = pipeline.run([])
+
+        self.assertIsNotNone(best)
+        self.assertEqual(best.retrieval_confidence, 0.0)
+        self.assertEqual(best.estimate, 1003.43)  # stored estimate untouched for monitoring
+        self.assertTrue(best.is_overestimate)
+        self.assertEqual(sent, [])
+
+    def test_ordinary_overestimate_is_not_flagged_as_mismatch(self):
+        sent = []
+        # Estimate a few percent above list (cap active, normal noise): push goes out.
+        deals = [_deal("A", 870.0, "https://x.test/1.html", list_price=1050.0)]
+        estimates = {"A": (1099.0, 0.81)}
+        pipeline = self._pipeline(deals, estimates, sent)
+
+        memory, best = pipeline.run([])
+
+        self.assertEqual(best.retrieval_confidence, 0.81)
+        self.assertEqual(len(sent), 1)
 
     def test_unusable_estimate_is_skipped(self):
         sent = []

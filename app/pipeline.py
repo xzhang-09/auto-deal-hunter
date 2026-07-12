@@ -25,7 +25,7 @@ from typing import List, Optional, Tuple
 from core.scoring import best_opportunity
 from core.source_ids import deal_id
 from domain.deal import Opportunity
-from infra.config import RAG_MIN_CONFIDENCE
+from infra.config import ESTIMATE_MISMATCH_RATIO, RAG_MIN_CONFIDENCE
 
 
 class DealPipeline:
@@ -86,9 +86,22 @@ class DealPipeline:
                 # fabricated value. See PricerAgent.price for the guard details.
                 logging.info("Skipping deal with no usable estimate: %s", exc)
                 continue
-            candidates.append(
-                Opportunity(deal=deal, estimate=estimate, retrieval_confidence=confidence)
+            opportunity = Opportunity(
+                deal=deal, estimate=estimate, retrieval_confidence=confidence
             )
+            if opportunity.is_comparables_mismatch(ESTIMATE_MISMATCH_RATIO):
+                # The estimate is a multiple of the list price: the RAG neighbors were the
+                # wrong kind of product, so the estimate deserves no trust. Zero the
+                # confidence (blocks the push via the RAG_MIN_CONFIDENCE gate below) but keep
+                # the candidate -- its savings are list-price-capped and therefore real.
+                logging.info(
+                    "Comparables mismatch (estimate %.2f > %.1fx list %.2f): zeroing "
+                    "confidence for %s",
+                    estimate, ESTIMATE_MISMATCH_RATIO, deal.list_price, deal.url,
+                )
+                confidence = 0.0
+                opportunity.retrieval_confidence = confidence
+            candidates.append(opportunity)
             confidence_by_id[deal_id(deal.url)] = confidence
 
         best = best_opportunity(candidates)
@@ -103,6 +116,11 @@ class DealPipeline:
             )
         else:
             self.messenger.notify(
-                best.deal.product_description, best.deal.price, best.estimate, best.deal.url
+                best.deal.product_description,
+                best.deal.price,
+                best.estimate,
+                best.deal.url,
+                best.deal.list_price,
+                best.deal.quantity,
             )
         return memory, best

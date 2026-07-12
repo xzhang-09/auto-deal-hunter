@@ -74,6 +74,14 @@ EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-mpnet-
 # for more missed deals. Set to 0 to disable the gate.
 RAG_MIN_CONFIDENCE = _get_float("RAG_MIN_CONFIDENCE", 0.15)
 
+# Estimates above this multiple of the seller's list price are treated as retrieval
+# mismatches (the RAG neighbors were the wrong kind of product) rather than ordinary
+# estimator noise: the deal keeps its list-price-capped savings and stays in the store,
+# but its push confidence is zeroed and the dashboard shows its estimate as unreliable.
+# Ordinary overestimates run a few percent above list; mismatches run at multiples of it,
+# so 2x cleanly separates the two. Raise it if legitimate deals get flagged.
+ESTIMATE_MISMATCH_RATIO = _get_float("ESTIMATE_MISMATCH_RATIO", 2.0)
+
 # Distance metric for the Chroma collection. all-mpnet-base-v2 is tuned for cosine
 # similarity, and a bounded cosine distance ([0, 2]) is what an interpretable RAG-confidence
 # threshold needs -- raw L2 on un-normalized vectors has no fixed scale. The build script

@@ -24,6 +24,12 @@ from app import ui
 
 
 class UiHelperTests(unittest.TestCase):
+    def setUp(self):
+        # Pin the mismatch threshold so the tests don't depend on an env override.
+        self._original_ratio = ui.ESTIMATE_MISMATCH_RATIO
+        ui.ESTIMATE_MISMATCH_RATIO = 2.0
+        self.addCleanup(setattr, ui, "ESTIMATE_MISMATCH_RATIO", self._original_ratio)
+
     def test_below_estimate_percent(self):
         # 80 paid against a 100 value -> 20% below value; never exceeds 100%.
         self.assertEqual(ui.below_estimate_percent(100.0, 80.0), "20.0%")
@@ -38,12 +44,13 @@ class UiHelperTests(unittest.TestCase):
 
         stats = ui.dashboard_stats(opportunities, vector_store_ready=True)
         self.assertEqual(stats["opportunities"], "2")
-        self.assertEqual(stats["overestimates"], "1/1")
         self.assertTrue(stats["ready"])
 
         html = ui.stats_html(stats)
         self.assertIn("2 saved deals", html)
-        self.assertIn("Est &gt; list price: 1/1", html)
+        # The aggregate overestimate counter was removed: per-row ⚠️ n/a marks mismatches,
+        # and calibration lives in eval_pricers / feedback_report.
+        self.assertNotIn("Est &gt; list price", html)
         self.assertNotIn("setup-warning", html)
 
     def test_dashboard_shows_setup_warning_when_not_ready(self):
@@ -51,12 +58,6 @@ class UiHelperTests(unittest.TestCase):
 
         self.assertIn("setup-warning", html)
         self.assertIn("build_vector_store.py", html)
-
-    def test_dashboard_hides_overestimate_ratio_when_no_saved_deals(self):
-        html = ui.stats_html(ui.dashboard_stats([], vector_store_ready=True))
-
-        self.assertIn("0 saved deals", html)
-        self.assertNotIn("Est &gt; list price", html)
 
     def test_table_rows_include_list_price(self):
         opportunity = self._opportunity(
@@ -89,14 +90,16 @@ class UiHelperTests(unittest.TestCase):
                 url="https://example.test/deal",
                 quantity=4,
             ),
-            estimate=12.99,
+            # Below the 2x-of-list mismatch threshold: this test exercises pack-price
+            # display, not the mismatch blanking (covered separately below).
+            estimate=10.0,
         )
 
         row = ui.table_for([opp])[0]
 
         self.assertEqual(row[1], "$19.00")          # pack deal price
         self.assertEqual(row[2], "$24.00")          # pack list price
-        self.assertEqual(row[3], "$51.96")          # pack estimate (12.99 x 4)
+        self.assertEqual(row[3], "$40.00")          # pack estimate (10.00 x 4)
         self.assertEqual(row[4], "$5.00")           # total capped savings (1.25 x 4)
         self.assertEqual(row[5], "20.8%")           # below-estimate %, scale-invariant
         self.assertIn("(4-pack)", row[0])
@@ -107,15 +110,67 @@ class UiHelperTests(unittest.TestCase):
 
         row = ui.table_for([opportunity])[0]
 
-        self.assertEqual(len(row), 7)
+        self.assertEqual(len(row), 10)
         self.assertEqual(row[6], "[View](https://example.test/deal)")
+        # Unlabeled rows show plain action emojis.
+        self.assertEqual(row[ui.GOOD_COL], "👍")
+        self.assertEqual(row[ui.BAD_COL], "👎")
+        self.assertEqual(row[ui.ALERT_COL], "🔔")
+
+    def test_table_renders_saved_feedback_labels(self):
+        from core.source_ids import deal_id
+
+        opportunity = self._opportunity(price=50.0, estimate=100.0)
+        labels = {deal_id(opportunity.deal.url): "good_deal"}
+
+        row = ui.table_for([opportunity], labels)[0]
+
+        self.assertEqual(row[ui.GOOD_COL], "✅")
+        self.assertEqual(row[ui.BAD_COL], "👎")
+
+    def test_handle_cell_action_routes_action_columns(self):
+        calls = []
+        framework = types.SimpleNamespace(
+            memory=[self._opportunity(price=50.0, estimate=100.0)],
+            opportunity_store=types.SimpleNamespace(
+                mark_feedback=lambda url, label: calls.append((url, label)),
+                feedback_map=lambda: {},
+            ),
+        )
+
+        ui.handle_cell_action(framework, 0, ui.GOOD_COL)
+        ui.handle_cell_action(framework, 0, ui.BAD_COL)
+
+        self.assertEqual(
+            calls,
+            [
+                ("https://example.test/deal", "good_deal"),
+                ("https://example.test/deal", "bad_deal"),
+            ],
+        )
+
+    def test_handle_cell_action_ignores_plain_cells(self):
+        calls = []
+        framework = types.SimpleNamespace(
+            memory=[self._opportunity(price=50.0, estimate=100.0)],
+            opportunity_store=types.SimpleNamespace(
+                mark_feedback=lambda url, label: calls.append((url, label)),
+                feedback_map=lambda: {},
+            ),
+        )
+
+        rows = ui.handle_cell_action(framework, 0, 1)
+
+        self.assertEqual(calls, [])
+        self.assertEqual(len(rows), 1)
 
     def test_mark_feedback_for_row_updates_selected_opportunity(self):
         calls = []
         framework = types.SimpleNamespace(
             memory=[self._opportunity(price=50.0, estimate=100.0)],
             opportunity_store=types.SimpleNamespace(
-                mark_feedback=lambda url, label: calls.append((url, label))
+                mark_feedback=lambda url, label: calls.append((url, label)),
+                feedback_map=lambda: {},
             ),
         )
 
@@ -129,7 +184,8 @@ class UiHelperTests(unittest.TestCase):
         framework = types.SimpleNamespace(
             memory=[self._opportunity(price=50.0, estimate=100.0)],
             opportunity_store=types.SimpleNamespace(
-                mark_feedback=lambda url, label: calls.append((url, label))
+                mark_feedback=lambda url, label: calls.append((url, label)),
+                feedback_map=lambda: {},
             ),
         )
 
@@ -156,6 +212,44 @@ class UiHelperTests(unittest.TestCase):
         # no list price: nothing to cap against, raw estimate used.
         unknown = self._opportunity(price=50.0, estimate=160.0)
         self.assertAlmostEqual(unknown.discount, 110.0)
+
+    def test_legacy_per_unit_note_is_stripped_from_stored_descriptions(self):
+        # Records saved before the note wording changed carry the old suffix; the table
+        # must strip that too, not only the current per_unit_note output.
+        opp = ui.Opportunity(
+            deal=ui.Deal(
+                product_description="AAA Batteries (per-unit price; sold in packs of 48)",
+                price=0.5,
+                list_price=0.8125,
+                url="https://example.test/deal",
+                quantity=48,
+            ),
+            estimate=0.6,
+        )
+
+        row = ui.table_for([opp])[0]
+
+        self.assertEqual(row[0], "AAA Batteries (48-pack)")
+
+    def test_mismatch_row_blanks_estimate_but_keeps_capped_savings(self):
+        # Estimate at a multiple of list price (retrieval mismatch): the estimate and the
+        # estimate-derived percentage are blanked, but the capped savings stay visible.
+        opportunity = self._opportunity(price=24.0, estimate=1003.43, list_price=39.0)
+
+        row = ui.table_for([opportunity])[0]
+
+        self.assertEqual(row[3], "⚠️ n/a")
+        self.assertEqual(row[4], "$15.00")  # min(estimate, list) - price
+        self.assertEqual(row[5], "n/a")
+
+    def test_is_comparables_mismatch_predicate(self):
+        mismatch = self._opportunity(price=24.0, estimate=1003.43, list_price=39.0)
+        ordinary = self._opportunity(price=870.0, estimate=1099.0, list_price=1050.0)
+        no_list = self._opportunity(price=24.0, estimate=1003.43, list_price=None)
+
+        self.assertTrue(mismatch.is_comparables_mismatch(2.0))
+        self.assertFalse(ordinary.is_comparables_mismatch(2.0))  # 1.05x list: normal noise
+        self.assertFalse(no_list.is_comparables_mismatch(2.0))  # nothing to compare against
 
     def test_is_overestimate_flag(self):
         over = self._opportunity(price=50.0, estimate=160.0, list_price=149.99)

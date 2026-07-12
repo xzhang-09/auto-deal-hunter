@@ -1,6 +1,12 @@
 import unittest
 
-from core.identity_policy import is_priceable, per_unit_fields, resolve
+from core.identity_policy import (
+    display_description,
+    is_priceable,
+    per_unit_fields,
+    per_unit_note,
+    resolve,
+)
 from domain.identity import ItemKind, ProductIdentity
 from ingest.identity import extract_identity_rule
 
@@ -178,7 +184,42 @@ class PerUnitFieldsTests(unittest.TestCase):
         self.assertAlmostEqual(price, 0.5)
         self.assertAlmostEqual(list_price, 1.0)
         self.assertEqual(qty, 36)
-        self.assertIn("per-unit", desc)
+        # The note must read as an instruction to value ONE unit (not a passive basis
+        # remark) and must name the pack size; see per_unit_note.
+        self.assertIn("ONE unit", desc)
+        self.assertIn("pack of 36", desc)
+
+    def test_display_description_appends_pack_suffix_when_missing(self):
+        self.assertEqual(
+            display_description("AAA Batteries" + per_unit_note(48), 48),
+            "AAA Batteries (48-pack)",
+        )
+        # Legacy stored note wording is stripped too.
+        self.assertEqual(
+            display_description(
+                "AAA Batteries (per-unit price; sold in packs of 48)", 48
+            ),
+            "AAA Batteries (48-pack)",
+        )
+
+    def test_display_description_skips_suffix_when_pack_already_mentioned(self):
+        # The scanner's rephrasing often leads with the pack size; no duplicate suffix then.
+        self.assertEqual(
+            display_description("This 48-pack of Energizer MAX" + per_unit_note(48), 48),
+            "This 48-pack of Energizer MAX",
+        )
+        self.assertEqual(
+            display_description("Sold as a pack of 48" + per_unit_note(48), 48),
+            "Sold as a pack of 48",
+        )
+        # Other quantities in the text (24 AA) must not suppress the 48-pack suffix.
+        self.assertEqual(
+            display_description("Includes 24 AA and 24 AAA" + per_unit_note(48), 48),
+            "Includes 24 AA and 24 AAA (48-pack)",
+        )
+
+    def test_display_description_passes_single_items_through(self):
+        self.assertEqual(display_description("A laptop", 1), "A laptop")
 
     def test_multipack_with_no_list_price(self):
         ident = ProductIdentity(kind=ItemKind.MULTIPACK, quantity=2, confidence=0.85)

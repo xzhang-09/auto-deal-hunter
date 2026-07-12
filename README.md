@@ -25,7 +25,7 @@ Telegram notification:
 - **Guardrail** — Caps reported savings at the seller's list price when a list price is available, reducing false bargains from high model estimates.
 - **Identity-aware** — Normalizes multi-packs to per-unit pricing and skips bundles/subscriptions that do not compare cleanly.
 - **Notify** — Sends optional Telegram notifications, or Pushover as a fallback, only for compelling deals with sufficient RAG confidence.
-- **Gradio UI** — Displays the opportunity table, guardrail summary, logs, a 3D t-SNE map of the vector store, and good/bad feedback buttons for saved deals.
+- **Gradio UI** — Displays the opportunity table, guardrail summary, logs, and a 3D t-SNE map of the vector store. Each deal row carries in-row 👍/👎 feedback cells (the saved label appears as ✅) and a 🔔 cell to push that deal to your phone.
 
 ## Requirements
 
@@ -156,6 +156,8 @@ evaluation settings.
 | `HF_TOKEN` | Hugging Face API token, used when dataset access or rate limits require authentication | — |
 | `TELEGRAM_BOT_TOKEN` | Telegram bot token for push notifications. Create one with BotFather | — |
 | `TELEGRAM_CHAT_ID` | Telegram chat id that receives deal notifications | — |
+| `TELEGRAM_FEEDBACK_ENABLED` | Receive Telegram Good/Bad button clicks and save them to the opportunity database | `false` |
+| `TELEGRAM_POLL_TIMEOUT_SECONDS` | Telegram long-poll timeout used by the feedback listener | `25` |
 | `PUSHOVER_USER` | Pushover user key, used when Telegram is not configured | — |
 | `PUSHOVER_TOKEN` | Pushover app token, used when Telegram is not configured | — |
 | **Common settings** | | |
@@ -183,6 +185,11 @@ Telegram setup:
 
 Pushover is also supported as an optional fallback: set `PUSHOVER_USER` and `PUSHOVER_TOKEN`.
 Telegram is preferred when both are configured.
+
+Set `TELEGRAM_FEEDBACK_ENABLED=true` to add `Good deal` / `Bad deal` buttons to Telegram
+notifications and run the callback listener. Notifications show deal price, list price when
+available, and estimated value while retaining the DealNews link preview. Button clicks write
+the same `good_deal` / `bad_deal` labels used by the dashboard to `DEALS_DB_PATH`.
 
 ### Model tiering
 
@@ -270,13 +277,6 @@ Example: if the model estimates `$120`, the seller list price is `$80`, and the 
 - **`list_price` is a downstream sanity bound.** A new-retail item's fair value should not
   exceed its original price. The dashboard shows the share of checkable deals whose estimate
   exceeds list price. Deals with no detected list price are left unchecked rather than penalized.
-
-## Evaluation
-
-Two scripts score the system on the held-out McAuley sample in `data/eval_holdout.json` (items
-excluded from the vector store, so they measure generalization rather than exact-match lookup).
-
-> **Figures depend on the model, the vector store size, and `--size`,** so they drift over time.
 - **Low-confidence estimates are shrunk toward their comparables.** Each scan keeps only the
   top-savings candidate, so the winner is systematically the estimate with the largest upward
   error (winner's curse) — a variance problem, not a bias one (holdout bias is ~0). The pricer
@@ -284,6 +284,18 @@ excluded from the vector store, so they measure generalization rather than exact
   weighted by retrieval confidence (`confidence * estimate + (1 - confidence) * median`),
   reining in exactly the estimates whose RAG basis is weakest. On the 149-item holdout this cut
   the over-prediction error on $100+ items by ~20% without moving overall bias.
+- **Estimates at a multiple of list price are treated as retrieval mismatches.** Ordinary
+  overestimates run a few percent above list; an estimate above `ESTIMATE_MISMATCH_RATIO`
+  (default 2×) means the comparables were the wrong kind of product entirely. The deal keeps
+  its capped savings and stays in the store (with `is_overestimate` monitoring intact), but
+  its push confidence is zeroed and the dashboard shows `⚠️ n/a` instead of the estimate.
+
+## Evaluation
+
+Two scripts score the system on the held-out McAuley sample in `data/eval_holdout.json` (items
+excluded from the vector store, so they measure generalization rather than exact-match lookup).
+
+> **Figures depend on the model, the vector store size, and `--size`,** so they drift over time.
 > The sample outputs below show the metric format only — run the scripts yourself for current
 > numbers.
 
@@ -387,7 +399,15 @@ price-aware re-ranking objective — before the re-ranker can earn the default s
 
 ### Feedback
 
-The dashboard's `Good deal` / `Bad deal` buttons write manual labels to `data/deals.sqlite`.
+Each dashboard row has in-row 👍/👎 cells that write manual labels to `data/deals.sqlite`;
+when Telegram feedback is enabled, its Good/Bad buttons write the same labels
+(the saved label is shown as ✅ in the row, and a 🔔 cell pushes that specific deal).
+Label 👍 only after verifying the price is genuinely below the item's street price; label 👎
+when the bargain is false (normal price elsewhere, junk listing, or a bad estimate) — the
+labels are the precision ground truth, so consistency matters more than volume.
+Labels are measurement-only: they never feed back into scanning, pricing, or notification
+automatically. Their job is to ground manual calibration decisions (e.g. where to set
+`RAG_MIN_CONFIDENCE`) via the report below.
 Summarize labeled precision, including buckets by retrieval confidence, list-price coverage,
 overestimate status, and discount size, with:
 
@@ -525,6 +545,15 @@ auto-deal-hunter/
   vector store plus an LLM. It is useful for ranking deals, but it can lag current market prices,
   especially for fast-moving categories, discontinued products, new releases, and long-tail brands
   with weak comparables.
+- **Reference-set category coverage bounds estimate quality.** The vector store is built from one
+  McAuley category (Electronics by default), while deal feeds also serve products that category
+  barely covers (e.g. plain alkaline batteries retrieve battery *chargers* as nearest neighbors).
+  Retrieval confidence measures embedding proximity, not category identity, so it cannot detect
+  this by itself. When the estimate lands above `ESTIMATE_MISMATCH_RATIO` × list price, the deal
+  is treated as a retrieval mismatch: its push is withheld and the dashboard shows `⚠️ n/a`
+  instead of the estimate (savings stay list-price-capped and real). **Residual exposure:** a
+  mismatched estimate on a deal with *no* detected list price cannot be caught by this guard —
+  there is nothing to cap against or compare with — and competes in ranking at face value.
 - **Source-dependent scans.** Deal quality depends on RSS feed availability and DealNews page
   structure.
 - **Runtime dependencies can fail.** Scans depend on DealNews pages, the local vector store, and an

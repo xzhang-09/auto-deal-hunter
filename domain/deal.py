@@ -65,3 +65,15 @@ class Opportunity(BaseModel):
         bias in the pricer for dashboard reporting. Unknown list_price (None) is treated
         as "cannot check" rather than a failure."""
         return self.deal.list_price is not None and self.estimate > self.deal.list_price
+
+    def is_comparables_mismatch(self, ratio: float) -> bool:
+        """True when the estimate exceeds ``ratio`` times the list price -- the signature of a
+        retrieval mismatch rather than ordinary estimator noise.
+
+        A slightly-high estimate (a few percent over list) is normal upward error; an estimate
+        at a multiple of list price means the RAG neighbors were the wrong kind of product
+        (e.g. battery chargers retrieved for alkaline batteries), so no trustworthy estimate
+        exists. Callers use this to zero the push confidence and blank the displayed estimate;
+        the stored estimate and ``is_overestimate`` monitoring stay untouched. The threshold
+        comes from config (``ESTIMATE_MISMATCH_RATIO``); this stays a pure predicate."""
+        return self.deal.list_price is not None and self.estimate > ratio * self.deal.list_price

@@ -8,7 +8,9 @@ from collections import Counter
 import gradio as gr
 
 from app.orchestrator import Orchestrator
-from core.identity_policy import per_unit_note
+from core.identity_policy import display_description
+from infra.config import ESTIMATE_MISMATCH_RATIO
+from core.source_ids import deal_id
 from infra.log_utils import reformat
 from infra.paths import DEFAULT_VECTORSTORE_PATH
 from domain.deal import Deal, Opportunity  # noqa: F401  re-exported for tests/UI helpers
@@ -25,6 +27,12 @@ warnings.filterwarnings(
 
 
 APP_CSS = """
+/* The opportunities table is a click-to-act surface (👍/👎/🔔 route through .select), not a
+   spreadsheet: hide Gradio's cell-selection outline and cell menu button so a click doesn't
+   look like it selected a cell for editing. */
+.table-wrap td.cell-selected::after { display: none !important; }
+.table-wrap td.cell-selected { box-shadow: none !important; outline: none !important; }
+.table-wrap .selection-button { display: none !important; }
 .app-header {
     border-bottom: 1px solid #e5e7eb;
     padding: 10px 0 14px;
@@ -107,18 +115,21 @@ def vector_store_ready(path=DEFAULT_VECTORSTORE_PATH) -> bool:
 
 
 def dashboard_stats(opportunities, vector_store_ready: bool) -> dict:
-    checkable = [opp for opp in opportunities if opp.deal.list_price is not None]
-    overestimates = sum(1 for opp in checkable if opp.is_overestimate)
     return {
         "opportunities": str(len(opportunities)),
-        "overestimates": f"{overestimates}/{len(checkable)}",
         "ready": vector_store_ready,
     }
 
 
 OPPORTUNITIES_NOTE = (
     "Est. Value is the model's independent fair-value estimate; Savings and Below Est. % are "
-    "capped at the list price, so an estimate higher than the list price never inflates them."
+    "capped at the list price, so an estimate higher than the list price never inflates them. "
+    "Click 👍 if you verified the price is genuinely below what the item sells for elsewhere, "
+    "👎 if the bargain is false (normal street price, junk listing, or a bad estimate), and "
+    "🔔 to push that deal to your phone. A ✅ marks your saved label. "
+    "Est. Value shows ⚠️ n/a when the retrieved comparable products were a poor match "
+    "(estimate far above list price) — no trustworthy estimate exists there, and Savings "
+    "falls back to the seller's own list-price discount."
 )
 
 
@@ -129,17 +140,23 @@ def stats_html(stats: dict) -> str:
             '<div class="setup-warning">⚠ Vector store not built — run '
             "<code>python scripts/build_vector_store.py</code> before scanning.</div>"
         )
-    overestimate_note = ""
-    if not str(stats["overestimates"]).endswith("/0"):
-        overestimate_note = f"Est &gt; list price: {stats['overestimates']}. "
     parts.append(
         f'<div class="section-caption"><b>{stats["opportunities"]} saved deals.</b> '
-        f"{overestimate_note}{OPPORTUNITIES_NOTE}</div>"
+        f"{OPPORTUNITIES_NOTE}</div>"
     )
     return "".join(parts)
 
 
-def table_for(opps):
+# Column indices of the in-row action cells; keep in sync with the Dataframe headers below.
+# Clicking one of these cells acts on its row directly (see handle_cell_action), so feedback
+# and alerts need no separate row-selection step -- and the saved label stays visible in-row.
+GOOD_COL = 7
+BAD_COL = 8
+ALERT_COL = 9
+
+
+def table_for(opps, feedback_by_id=None):
+    feedback_by_id = feedback_by_id or {}
     rows = []
     for opp in opps:
         quantity = opp.deal.quantity
@@ -149,31 +166,60 @@ def table_for(opps):
         price = opp.deal.price * quantity
         list_price = opp.deal.list_price * quantity if opp.deal.list_price else None
         estimate = opp.estimate * quantity
-        description = opp.deal.product_description
-        if quantity > 1:
-            description = description.replace(per_unit_note(quantity), "") + f" ({quantity}-pack)"
+        description = display_description(opp.deal.product_description, quantity)
+        label = feedback_by_id.get(deal_id(opp.deal.url))
+        # A comparables-mismatch estimate (a multiple of list price) is untrustworthy: blank
+        # it rather than display a nonsense figure or fake agreement with the list price.
+        # Savings stay visible -- they are list-price-capped and therefore real.
+        mismatch = opp.is_comparables_mismatch(ESTIMATE_MISMATCH_RATIO)
         rows.append(
             [
                 description,
                 f"${price:.2f}",
                 f"${list_price:.2f}" if list_price else "n/a",
-                f"${estimate:.2f}",
+                "⚠️ n/a" if mismatch else f"${estimate:.2f}",
                 f"${opp.total_discount:.2f}",
-                below_estimate_percent(opp.effective_value, opp.deal.price),
+                "n/a" if mismatch else below_estimate_percent(opp.effective_value, opp.deal.price),
                 f"[View]({opp.deal.url})",
+                "✅" if label == "good_deal" else "👍",
+                "✅" if label == "bad_deal" else "👎",
+                "🔔",
             ]
         )
     return rows
 
 
+def refreshed_table(agent_framework):
+    """Current opportunity table with saved feedback labels rendered into the action cells."""
+    return table_for(agent_framework.memory, agent_framework.opportunity_store.feedback_map())
+
+
+def handle_cell_action(agent_framework, row: int | None, col: int | None):
+    """Route a Dataframe cell click: 👍/👎 write feedback for that row, 🔔 alerts it.
+
+    Returns the refreshed table. Clicks on non-action cells fall through to a plain refresh
+    so the select event never leaves the table stale."""
+    if row is None or col is None:
+        return refreshed_table(agent_framework)
+    if row < 0 or row >= len(agent_framework.memory):
+        return refreshed_table(agent_framework)
+    if col == GOOD_COL:
+        return mark_feedback_for_row(agent_framework, row, "good_deal")
+    if col == BAD_COL:
+        return mark_feedback_for_row(agent_framework, row, "bad_deal")
+    if col == ALERT_COL:
+        alert_for_row(agent_framework, row)
+    return refreshed_table(agent_framework)
+
+
 def mark_feedback_for_row(agent_framework, row: int | None, label: str):
     if row is None:
-        return table_for(agent_framework.memory)
+        return refreshed_table(agent_framework)
     if row < 0 or row >= len(agent_framework.memory):
-        return table_for(agent_framework.memory)
+        return refreshed_table(agent_framework)
     opportunity = agent_framework.memory[row]
     agent_framework.opportunity_store.mark_feedback(opportunity.deal.url, label)
-    return table_for(agent_framework.memory)
+    return refreshed_table(agent_framework)
 
 
 def alert_for_row(agent_framework, row: int | None) -> None:
@@ -211,14 +257,13 @@ class App:
     def run(self):
         with gr.Blocks(
             title="Auto Deal Hunter",
-            fill_width=True,
             css=APP_CSS,
             analytics_enabled=False,
         ) as ui:
             log_data = gr.State([])
 
             def update_output(log_data, log_queue, result_queue):
-                initial_result = table_for(self.get_agent_framework().memory)
+                initial_result = refreshed_table(self.get_agent_framework())
                 final_result = None
                 while True:
                     current_memory = self.get_agent_framework().memory
@@ -281,7 +326,8 @@ class App:
                     return fig
 
             def do_run():
-                return table_for(self.get_agent_framework().run())
+                self.get_agent_framework().run()
+                return refreshed_table(self.get_agent_framework())
 
             def run_with_logging(initial_log_data):
                 log_queue = queue.Queue()
@@ -293,7 +339,7 @@ class App:
                         result = do_run()
                     except Exception:
                         logging.exception("Agent run failed")
-                        result = table_for(self.get_agent_framework().memory) if self.agent_framework else []
+                        result = refreshed_table(self.get_agent_framework()) if self.agent_framework else []
                     result_queue.put(result)
 
                 thread = threading.Thread(target=worker, daemon=True)
@@ -305,19 +351,10 @@ class App:
                     yield log_data, stats, output, final_result
 
             def do_select(selected_index: gr.SelectData):
-                opportunities = self.get_agent_framework().memory
-                if not opportunities:
-                    return None
-                row = selected_index.index[0]
-                if row < len(opportunities):
-                    return row
-                return None
-
-            def mark_selected_feedback(row, label):
-                return mark_feedback_for_row(self.get_agent_framework(), row, label)
-
-            def alert_selected(row):
-                alert_for_row(self.get_agent_framework(), row)
+                # Route the click to the in-row action columns (👍/👎/🔔); clicks on any
+                # other cell just refresh the table.
+                row, col = selected_index.index[0], selected_index.index[1]
+                return handle_cell_action(self.get_agent_framework(), row, col)
 
             with gr.Row(elem_classes=["app-header"]):
                 gr.Markdown(
@@ -326,12 +363,6 @@ class App:
                 )
             with gr.Row():
                 run_button = gr.Button("Scan now", variant="primary", size="sm", scale=0)
-                alert_button = gr.Button("Send alert", size="sm", scale=0)
-                good_button = gr.Button("Good deal", size="sm", scale=0)
-                bad_button = gr.Button("Bad deal", size="sm", scale=0)
-            selected_row = gr.State(None)
-            good_label = gr.State("good_deal")
-            bad_label = gr.State("bad_deal")
             with gr.Row():
                 opportunities_dataframe = gr.Dataframe(
                     label="Opportunities",
@@ -343,13 +374,20 @@ class App:
                         "Savings ($)",
                         "Below Est. %",
                         "URL",
+                        "Good deal",
+                        "Bad deal",
+                        "Send alert",
                     ],
-                    datatype=["str", "str", "str", "str", "str", "str", "markdown"],
+                    datatype=["str"] * 6 + ["markdown", "str", "str", "str"],
                     wrap=True,
-                    column_widths=["40%", "10%", "10%", "10%", "10%", "10%", "10%"],
+                    column_widths=["28%", "8%", "8%", "8%", "8%", "8%", "8%", "8%", "8%", "8%"],
                     row_count=10,
-                    col_count=7,
+                    col_count=10,
                     max_height=400,
+                    # Read-only: cells route clicks to 👍/👎/🔔 actions via .select; letting
+                    # Gradio's default editing UI open on click would suggest edits persist
+                    # when the table is overwritten on every refresh.
+                    interactive=False,
                 )
             with gr.Row(elem_classes=["section-caption-row"]):
                 status_cards = gr.HTML(
@@ -376,7 +414,7 @@ class App:
                     initial_log_data,
                     stats_html(dashboard_stats(current_memory, vector_store_ready())),
                     html_for(initial_log_data),
-                    table_for(current_memory),
+                    refreshed_table(self.get_agent_framework()),
                 )
 
             ui.load(
@@ -399,18 +437,7 @@ class App:
                 outputs=[log_data, status_cards, logs, opportunities_dataframe],
             )
 
-            opportunities_dataframe.select(do_select, outputs=[selected_row])
-            alert_button.click(alert_selected, inputs=[selected_row])
-            good_button.click(
-                mark_selected_feedback,
-                inputs=[selected_row, good_label],
-                outputs=[opportunities_dataframe],
-            )
-            bad_button.click(
-                mark_selected_feedback,
-                inputs=[selected_row, bad_label],
-                outputs=[opportunities_dataframe],
-            )
+            opportunities_dataframe.select(do_select, outputs=[opportunities_dataframe])
 
         ui.launch(share=False, inbrowser=True)
 

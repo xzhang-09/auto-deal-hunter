@@ -29,8 +29,51 @@ _NOT_PRICEABLE = {
 
 def per_unit_note(quantity: int) -> str:
     """Suffix appended to a multipack's description marking its price as per single unit.
-    Shared so the UI can strip it again when it shows pack-level prices to the user."""
-    return f" (per-unit price; sold in packs of {quantity})"
+    Shared so the UI can strip it again when it shows pack-level prices to the user.
+
+    Worded as an explicit instruction because the pricer LLM reads it: a passive tail note
+    loses to a description that leads with "This 48-pack of..." and the model then values
+    the whole pack -- which the pipeline multiplies back up by the pack size (a 48-pack of
+    batteries valued at ~$25 for the pack surfaced as a $1,003 estimate)."""
+    return (
+        f" (IMPORTANT: all prices here are per single unit; this listing sells a pack of "
+        f"{quantity}, but state the value of ONE unit only)"
+    )
+
+
+def strip_per_unit_note(description: str, quantity: int) -> str:
+    """Remove the per-unit note (current or any historical wording) from a description.
+
+    Stored opportunities keep whatever note text was current when they were scanned, so
+    display code must strip every wording ever shipped -- matching only the current
+    ``per_unit_note`` output would leave stale suffixes on old records."""
+    notes = (
+        per_unit_note(quantity),
+        # Wording shipped before the note became an explicit single-unit instruction.
+        f" (per-unit price; sold in packs of {quantity})",
+    )
+    for note in notes:
+        description = description.replace(note, "")
+    return description
+
+
+def display_description(description: str, quantity: int) -> str:
+    """User-facing description for a deal: the internal per-unit note swapped for a plain
+    pack suffix. Shared by the dashboard table and push notifications so both render
+    identically.
+
+    The suffix is only appended when the text does not already state the pack size (the
+    scanner's rephrasing often leads with "This 48-pack of..."). The mention check is
+    deliberately conservative -- common spellings only -- because a missed mention merely
+    duplicates harmless information, while an over-eager match (e.g. reading the "24" in
+    "24 AA and 24 AAA") would drop it."""
+    if quantity <= 1:
+        return description
+    description = strip_per_unit_note(description, quantity)
+    mentions = (f"{quantity}-pack", f"{quantity} pack", f"pack of {quantity}")
+    if any(mention in description.lower() for mention in mentions):
+        return description
+    return description + f" ({quantity}-pack)"
 
 
 def per_unit_fields(
