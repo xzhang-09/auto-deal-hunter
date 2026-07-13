@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=61"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "auto-deal-hunter"
@@ -38,11 +38,11 @@ dev = [
     "ruff>=0.6.0",
 ]
 
-# Flat-layout packages. Installing the project (``pip install -e .``) puts these on the
-# import path so modules and the spawned MCP server resolve without per-file
-# ``sys.path`` manipulation.
-[tool.setuptools]
-packages = ["app", "agents", "core", "domain", "evaluation", "infra", "ingest", "scripts"]
+# Single top-level namespace. Installing the project (``pip install -e .``) puts
+# ``auto_deal_hunter`` on the import path so modules and the spawned MCP server resolve
+# without per-file ``sys.path`` manipulation.
+[tool.hatch.build.targets.wheel]
+packages = ["auto_deal_hunter"]
 
 [tool.ruff]
 target-version = "py310"

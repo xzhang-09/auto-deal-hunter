@@ -4,8 +4,8 @@ from unittest.mock import patch
 
 from pydantic import BaseModel
 
-from infra import openai_compat
-from infra.usage import UsageTracker
+from auto_deal_hunter.infra import openai_compat
+from auto_deal_hunter.infra.usage import UsageTracker
 
 
 class ExampleResult(BaseModel):
@@ -14,7 +14,7 @@ class ExampleResult(BaseModel):
 
 class OpenAICompatTests(unittest.TestCase):
     def setUp(self):
-        from infra import usage
+        from auto_deal_hunter.infra import usage
 
         usage.TRACKER.reset()
         self.addCleanup(usage.TRACKER.reset)

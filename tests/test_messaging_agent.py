@@ -4,10 +4,10 @@ from unittest.mock import Mock, patch
 
 
 class MessagingAgentTests(unittest.TestCase):
-    @patch("agents.messaging_agent.OpenAI")
-    @patch("agents.messaging_agent.requests.post")
+    @patch("auto_deal_hunter.agents.messaging_agent.OpenAI")
+    @patch("auto_deal_hunter.agents.messaging_agent.requests.post")
     def test_push_uses_telegram_when_configured(self, post, _openai):
-        from agents.messaging_agent import MessagingAgent
+        from auto_deal_hunter.agents.messaging_agent import MessagingAgent
 
         response = Mock()
         response.raise_for_status.return_value = None
@@ -31,10 +31,10 @@ class MessagingAgentTests(unittest.TestCase):
             timeout=10,
         )
 
-    @patch("agents.messaging_agent.OpenAI")
-    @patch("agents.messaging_agent.requests.post")
+    @patch("auto_deal_hunter.agents.messaging_agent.OpenAI")
+    @patch("auto_deal_hunter.agents.messaging_agent.requests.post")
     def test_notify_includes_prices_and_feedback_buttons(self, post, _openai):
-        from agents.messaging_agent import MessagingAgent
+        from auto_deal_hunter.agents.messaging_agent import MessagingAgent
 
         response = Mock()
         response.raise_for_status.return_value = None
@@ -44,7 +44,7 @@ class MessagingAgentTests(unittest.TestCase):
             "os.environ",
             {"TELEGRAM_BOT_TOKEN": "bot-token", "TELEGRAM_CHAT_ID": "123456"},
             clear=False,
-        ), patch("agents.messaging_agent.TELEGRAM_FEEDBACK_ENABLED", True):
+        ), patch("auto_deal_hunter.agents.messaging_agent.TELEGRAM_FEEDBACK_ENABLED", True):
             agent = MessagingAgent()
             agent.craft_message = Mock(return_value="A concise deal summary.")
             agent.notify("Product", 22.99, 24.99, "https://dealnews.test/504998.html", 29.99)
@@ -62,23 +62,23 @@ class MessagingAgentTests(unittest.TestCase):
         self.assertEqual(buttons[0]["callback_data"], "fb:g:504998")
         self.assertEqual(buttons[1]["callback_data"], "fb:b:504998")
 
-    @patch("agents.messaging_agent.OpenAI")
-    @patch("agents.messaging_agent.requests.post")
+    @patch("auto_deal_hunter.agents.messaging_agent.OpenAI")
+    @patch("auto_deal_hunter.agents.messaging_agent.requests.post")
     def test_feedback_buttons_are_omitted_when_listener_is_disabled(self, post, _openai):
-        from agents.messaging_agent import MessagingAgent
+        from auto_deal_hunter.agents.messaging_agent import MessagingAgent
 
         post.return_value = Mock(raise_for_status=Mock())
         with patch.dict(
             "os.environ",
             {"TELEGRAM_BOT_TOKEN": "bot-token", "TELEGRAM_CHAT_ID": "123456"},
             clear=False,
-        ), patch("agents.messaging_agent.TELEGRAM_FEEDBACK_ENABLED", False):
+        ), patch("auto_deal_hunter.agents.messaging_agent.TELEGRAM_FEEDBACK_ENABLED", False):
             MessagingAgent().push("deal", "504998")
 
         self.assertNotIn("reply_markup", post.call_args.kwargs["data"])
 
     def test_message_omits_unknown_list_price(self):
-        from agents.messaging_agent import MessagingAgent
+        from auto_deal_hunter.agents.messaging_agent import MessagingAgent
 
         message = MessagingAgent._message_with_prices(
             "Summary", 7.0, 15.0, "https://example.test/deal", None
@@ -89,7 +89,7 @@ class MessagingAgentTests(unittest.TestCase):
         self.assertIn("Savings: ~$8", message)
 
     def test_savings_are_capped_when_estimate_exceeds_list_price(self):
-        from agents.messaging_agent import MessagingAgent
+        from auto_deal_hunter.agents.messaging_agent import MessagingAgent
 
         # Estimate above list but below the mismatch ratio: shown, savings capped at list.
         message = MessagingAgent._message_with_prices(
@@ -100,7 +100,7 @@ class MessagingAgentTests(unittest.TestCase):
         self.assertIn("Savings (capped at list): $98.00", message)
 
     def test_mismatch_estimate_is_omitted_from_message(self):
-        from agents.messaging_agent import MessagingAgent
+        from auto_deal_hunter.agents.messaging_agent import MessagingAgent
 
         # Estimate at 3x list price (comparables mismatch): no estimate line, mirroring the
         # dashboard's ⚠️ n/a; capped savings remain because they are real seller prices.
@@ -112,7 +112,7 @@ class MessagingAgentTests(unittest.TestCase):
         self.assertIn("Savings (capped at list): $98.00", message)
 
     def test_multipack_message_shows_pack_level_prices(self):
-        from agents.messaging_agent import MessagingAgent
+        from auto_deal_hunter.agents.messaging_agent import MessagingAgent
 
         # The battery case: per-unit inputs, 48-pack. Mismatch (20.9 > 2x 0.8125) drops the
         # estimate; every remaining figure is pack-level, matching the dashboard row.

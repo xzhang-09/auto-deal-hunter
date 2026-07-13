@@ -1,6 +1,6 @@
 import unittest
 
-from evaluation.retrieval import aggregate, retrieval_metrics
+from auto_deal_hunter.evaluation.retrieval import aggregate, retrieval_metrics
 
 
 class RetrievalMetricsTests(unittest.TestCase):

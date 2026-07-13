@@ -1,14 +1,14 @@
 import unittest
 
-from core.identity_policy import (
+from auto_deal_hunter.core.identity_policy import (
     display_description,
     is_priceable,
     per_unit_fields,
     per_unit_note,
     resolve,
 )
-from domain.identity import ItemKind, ProductIdentity
-from ingest.identity import extract_identity_rule
+from auto_deal_hunter.domain.identity import ItemKind, ProductIdentity
+from auto_deal_hunter.ingest.identity import extract_identity_rule
 
 
 class ExtractIdentityRuleTests(unittest.TestCase):

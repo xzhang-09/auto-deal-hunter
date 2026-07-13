@@ -1,6 +1,6 @@
 import unittest
 
-from core.source_ids import deal_id
+from auto_deal_hunter.core.source_ids import deal_id
 
 
 class SourceIdsTests(unittest.TestCase):

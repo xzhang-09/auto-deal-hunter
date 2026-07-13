@@ -1,8 +1,8 @@
 import types
 import unittest
 
-from domain.deal import Deal, Opportunity
-from evaluation.judge import MessageJudge, ScanJudge, corrupted_variants, MessageVerdict
+from auto_deal_hunter.domain.deal import Deal, Opportunity
+from auto_deal_hunter.evaluation.judge import MessageJudge, ScanJudge, corrupted_variants, MessageVerdict
 
 
 class MessageJudgeTests(unittest.TestCase):

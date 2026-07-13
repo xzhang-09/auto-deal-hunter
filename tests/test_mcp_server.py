@@ -20,7 +20,7 @@ class McpServerCacheTests(unittest.TestCase):
         )
         sys.modules["chromadb"] = chromadb
 
-        module = importlib.import_module("app.mcp_server")
+        module = importlib.import_module("auto_deal_hunter.app.mcp_server")
         module._AGENTS_CACHE = None
         module.ScannerAgent = lambda: object()
         module.PricerAgent = lambda collection: object()
@@ -47,7 +47,7 @@ class NotifyConfidenceGateTests(unittest.TestCase):
         )
         sys.modules["chromadb"] = chromadb
 
-        module = importlib.import_module("app.mcp_server")
+        module = importlib.import_module("auto_deal_hunter.app.mcp_server")
         sent = []
         original_get_agents = module._get_agents
         original_threshold = module.RAG_MIN_CONFIDENCE

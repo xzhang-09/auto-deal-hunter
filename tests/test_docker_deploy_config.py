@@ -13,7 +13,7 @@ class DockerDeployConfigTests(unittest.TestCase):
         self.assertIn("GRADIO_SERVER_NAME=0.0.0.0", dockerfile)
         self.assertIn('"python"', dockerfile)
         self.assertIn('"-m"', dockerfile)
-        self.assertIn('"app.ui"', dockerfile)
+        self.assertIn('"auto_deal_hunter.app.ui"', dockerfile)
 
     def test_compose_uses_env_file_and_persistent_data_volume(self):
         compose = (ROOT / "docker-compose.yml").read_text()

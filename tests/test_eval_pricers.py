@@ -1,6 +1,6 @@
 import unittest
 
-from evaluation import pricer as eval_pricers
+from auto_deal_hunter.evaluation import pricer as eval_pricers
 
 
 class SummarizeTests(unittest.TestCase):

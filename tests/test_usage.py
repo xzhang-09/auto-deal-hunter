@@ -1,7 +1,7 @@
 import types
 import unittest
 
-from infra.usage import PRICING, UsageTracker
+from auto_deal_hunter.infra.usage import PRICING, UsageTracker
 
 
 class UsageTrackerTests(unittest.TestCase):

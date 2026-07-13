@@ -10,7 +10,7 @@ from unittest.mock import patch
 class HttpCacheTests(unittest.TestCase):
     def _fresh_module(self, tmpdir):
         # Reimport with the cache path pointed at a temp file so tests never touch data/.
-        import infra.http_cache as http_cache
+        import auto_deal_hunter.infra.http_cache as http_cache
 
         importlib.reload(http_cache)
         http_cache._CACHE_PATH = Path(tmpdir) / "cache.sqlite"

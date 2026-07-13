@@ -1,7 +1,7 @@
 import unittest
 
-from domain.deal import Deal, Opportunity
-from scripts.feedback_report import confidence_bucket, summarize_feedback
+from auto_deal_hunter.domain.deal import Deal, Opportunity
+from auto_deal_hunter.scripts.feedback_report import confidence_bucket, summarize_feedback
 
 
 class FeedbackReportTests(unittest.TestCase):

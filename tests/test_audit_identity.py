@@ -8,7 +8,7 @@ feedparser = types.ModuleType("feedparser")
 feedparser.parse = lambda url: types.SimpleNamespace(entries=[])
 sys.modules.setdefault("feedparser", feedparser)
 
-from scripts.audit_identity import summarize
+from auto_deal_hunter.scripts.audit_identity import summarize
 
 
 def _rec(kind, new_retail=True, title="t"):

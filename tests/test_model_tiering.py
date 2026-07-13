@@ -2,7 +2,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from infra import config
+from auto_deal_hunter.infra import config
 
 
 class ModelTieringTests(unittest.TestCase):

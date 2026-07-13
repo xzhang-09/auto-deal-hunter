@@ -11,8 +11,8 @@ feedparser = types.ModuleType("feedparser")
 feedparser.parse = lambda url: types.SimpleNamespace(entries=[])
 sys.modules.setdefault("feedparser", feedparser)
 
-from core.opportunity_store import OpportunityStore
-from domain.deal import Deal, Opportunity
+from auto_deal_hunter.core.opportunity_store import OpportunityStore
+from auto_deal_hunter.domain.deal import Deal, Opportunity
 
 
 class OpportunityStoreTests(unittest.TestCase):
@@ -66,7 +66,7 @@ class OpportunityStoreTests(unittest.TestCase):
             self.assertEqual(store.feedback_counts(), {"good_deal": 1, "bad_deal": 0, "unlabeled": 0})
 
     def test_mark_feedback_by_id_updates_existing_row_and_reports_missing(self):
-        from core.source_ids import deal_id
+        from auto_deal_hunter.core.source_ids import deal_id
 
         with tempfile.TemporaryDirectory() as tmpdir:
             store = OpportunityStore(Path(tmpdir) / "deals.sqlite")
@@ -79,7 +79,7 @@ class OpportunityStoreTests(unittest.TestCase):
             self.assertEqual(store.feedback_counts()["bad_deal"], 1)
 
     def test_feedback_map_returns_labels_by_dedup_id(self):
-        from core.source_ids import deal_id
+        from auto_deal_hunter.core.source_ids import deal_id
 
         with tempfile.TemporaryDirectory() as tmpdir:
             store = OpportunityStore(Path(tmpdir) / "deals.sqlite")

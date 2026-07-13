@@ -11,8 +11,8 @@ sys.modules.setdefault("feedparser", feedparser)
 # exposing only ``run_sync`` to dodge its heavy MCP/OpenAI imports. This test exercises the
 # real ``opportunity_from_notify_args``, so drop any such stub and import the genuine module,
 # keeping the test independent of collection order.
-sys.modules.pop("app.mcp_client", None)
-from app import mcp_client
+sys.modules.pop("auto_deal_hunter.app.mcp_client", None)
+from auto_deal_hunter.app import mcp_client
 
 
 class AgentMcpTests(unittest.TestCase):

@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 class StabilityTests(unittest.TestCase):
     def test_reformat_escapes_html_but_keeps_color_spans(self):
-        from infra.log_utils import BG_BLACK, GREEN, RESET, reformat
+        from auto_deal_hunter.infra.log_utils import BG_BLACK, GREEN, RESET, reformat
 
         message = f"{BG_BLACK}{GREEN}<script>alert(1)</script>{RESET}"
 
@@ -22,7 +22,7 @@ class StabilityTests(unittest.TestCase):
 
     def test_read_memory_allows_sqlite_filename_without_directory(self):
         self._install_deal_framework_stubs()
-        module = importlib.import_module("app.orchestrator")
+        module = importlib.import_module("auto_deal_hunter.app.orchestrator")
 
         with tempfile.TemporaryDirectory() as tmpdir:
             original_cwd = os.getcwd()
@@ -39,7 +39,7 @@ class StabilityTests(unittest.TestCase):
 
     def test_scraped_deal_fetch_skips_detail_request_failures(self):
         self._install_model_stubs()
-        from ingest.scraper import ScrapedDeal
+        from auto_deal_hunter.ingest.scraper import ScrapedDeal
 
         entry = {
             "title": "Working deal",
@@ -62,9 +62,9 @@ class StabilityTests(unittest.TestCase):
 
         with (
             patch.dict(os.environ, {"DEALHUNTER_HTTP_CACHE": "0"}),
-            patch("ingest.scraper.FEEDS", ["https://example.test/rss"]),
-            patch("ingest.scraper.feedparser.parse") as parse,
-            patch("ingest.scraper.requests.get", side_effect=fake_get),
+            patch("auto_deal_hunter.ingest.scraper.FEEDS", ["https://example.test/rss"]),
+            patch("auto_deal_hunter.ingest.scraper.feedparser.parse") as parse,
+            patch("auto_deal_hunter.ingest.scraper.requests.get", side_effect=fake_get),
         ):
             parse.return_value = types.SimpleNamespace(entries=[entry, broken])
 
@@ -75,7 +75,7 @@ class StabilityTests(unittest.TestCase):
 
     def test_scraped_deal_fetch_filters_non_new_conditions(self):
         self._install_model_stubs()
-        from ingest.scraper import ScrapedDeal
+        from auto_deal_hunter.ingest.scraper import ScrapedDeal
 
         entries = [
             {
@@ -108,9 +108,9 @@ class StabilityTests(unittest.TestCase):
 
         with (
             patch.dict(os.environ, {"DEALHUNTER_HTTP_CACHE": "0"}),
-            patch("ingest.scraper.FEEDS", ["https://example.test/rss"]),
-            patch("ingest.scraper.feedparser.parse") as parse,
-            patch("ingest.scraper.requests.get", side_effect=fake_get),
+            patch("auto_deal_hunter.ingest.scraper.FEEDS", ["https://example.test/rss"]),
+            patch("auto_deal_hunter.ingest.scraper.feedparser.parse") as parse,
+            patch("auto_deal_hunter.ingest.scraper.requests.get", side_effect=fake_get),
         ):
             parse.return_value = types.SimpleNamespace(entries=entries)
 
@@ -120,7 +120,7 @@ class StabilityTests(unittest.TestCase):
 
     def test_scraped_deal_fetch_keeps_new_items_with_used_as_a_verb(self):
         self._install_model_stubs()
-        from ingest.scraper import ScrapedDeal
+        from auto_deal_hunter.ingest.scraper import ScrapedDeal
 
         entry = {
             "title": "New USB-C Charger",
@@ -136,9 +136,9 @@ class StabilityTests(unittest.TestCase):
 
         with (
             patch.dict(os.environ, {"DEALHUNTER_HTTP_CACHE": "0"}),
-            patch("ingest.scraper.FEEDS", ["https://example.test/rss"]),
-            patch("ingest.scraper.feedparser.parse") as parse,
-            patch("ingest.scraper.requests.get", side_effect=fake_get),
+            patch("auto_deal_hunter.ingest.scraper.FEEDS", ["https://example.test/rss"]),
+            patch("auto_deal_hunter.ingest.scraper.feedparser.parse") as parse,
+            patch("auto_deal_hunter.ingest.scraper.requests.get", side_effect=fake_get),
         ):
             parse.return_value = types.SimpleNamespace(entries=[entry])
 
@@ -148,7 +148,7 @@ class StabilityTests(unittest.TestCase):
 
     def test_scraped_deal_extracts_list_price_from_detail_text(self):
         self._install_model_stubs()
-        from ingest.scraper import ScrapedDeal
+        from auto_deal_hunter.ingest.scraper import ScrapedDeal
 
         entry = {
             "title": "New Monitor",
@@ -164,7 +164,7 @@ class StabilityTests(unittest.TestCase):
 
         with (
             patch.dict(os.environ, {"DEALHUNTER_HTTP_CACHE": "0"}),
-            patch("ingest.scraper.requests.get", side_effect=fake_get),
+            patch("auto_deal_hunter.ingest.scraper.requests.get", side_effect=fake_get),
         ):
             deal = ScrapedDeal(entry)
 
@@ -173,7 +173,7 @@ class StabilityTests(unittest.TestCase):
 
     def test_extract_list_price_supports_dealnews_double_price(self):
         self._install_model_stubs()
-        from ingest.list_price import extract_list_price
+        from auto_deal_hunter.ingest.list_price import extract_list_price
 
         text = "Renogy 2000W Pure Sine Wave Inverter $167 $482 free shipping more"
 
@@ -181,7 +181,7 @@ class StabilityTests(unittest.TestCase):
 
     def test_extract_list_price_prefers_dealnews_double_price_over_model_numbers(self):
         self._install_model_stubs()
-        from ingest.list_price import extract_list_price
+        from auto_deal_hunter.ingest.list_price import extract_list_price
 
         text = (
             "Aoostar Maco 6850H AMD Ryzen 7 Pro Mini PC $266 $861 free shipping more. "
@@ -193,7 +193,7 @@ class StabilityTests(unittest.TestCase):
 
     def test_extract_list_price_supports_promo_terms_between_dealnews_prices(self):
         self._install_model_stubs()
-        from ingest.list_price import extract_list_price
+        from auto_deal_hunter.ingest.list_price import extract_list_price
 
         text = "Beats Studio Pro Headphones $132 w/ Prime $200 free shipping more"
 
@@ -201,7 +201,7 @@ class StabilityTests(unittest.TestCase):
 
     def test_extract_list_price_supports_rounded_display_price(self):
         self._install_model_stubs()
-        from ingest.list_price import extract_list_price
+        from auto_deal_hunter.ingest.list_price import extract_list_price
 
         text = "Energizer AAA Batteries $15 w/ Sub & Save $20 free shipping more"
 
@@ -209,7 +209,7 @@ class StabilityTests(unittest.TestCase):
 
     def test_extract_list_price_supports_stacked_percentage_discounts(self):
         self._install_model_stubs()
-        from ingest.list_price import extract_list_price
+        from auto_deal_hunter.ingest.list_price import extract_list_price
 
         text = (
             "Wavlink DisplayLink Docking Station 50% off + Extra 20% off + "
@@ -220,7 +220,7 @@ class StabilityTests(unittest.TestCase):
 
     def test_extract_list_price_ignores_related_offer_percentage_discounts(self):
         self._install_model_stubs()
-        from ingest.list_price import extract_list_price
+        from auto_deal_hunter.ingest.list_price import extract_list_price
 
         text = (
             "Wavlink DisplayLink Docking Station 50% off + Extra 20% off + "
@@ -232,7 +232,7 @@ class StabilityTests(unittest.TestCase):
 
     def test_extract_list_price_supports_regular_price_of(self):
         self._install_model_stubs()
-        from ingest.list_price import extract_list_price
+        from auto_deal_hunter.ingest.list_price import extract_list_price
 
         text = "This inverter is $196 off its regular price of $482."
 
@@ -240,7 +240,7 @@ class StabilityTests(unittest.TestCase):
 
     def test_extract_list_price_supports_from_its_list_price(self):
         self._install_model_stubs()
-        from ingest.list_price import extract_list_price
+        from auto_deal_hunter.ingest.list_price import extract_list_price
 
         text = "Avapow jump starter for $70, down $90 from its $160 list price."
 
@@ -248,7 +248,7 @@ class StabilityTests(unittest.TestCase):
 
     def test_extract_list_price_avoids_related_offer_without_deal_price(self):
         self._install_model_stubs()
-        from ingest.list_price import extract_list_price
+        from auto_deal_hunter.ingest.list_price import extract_list_price
 
         text = (
             "Target deal $70 free shipping. Related Offers: "
@@ -258,14 +258,14 @@ class StabilityTests(unittest.TestCase):
         self.assertIsNone(extract_list_price(text, deal_price=70.0))
 
     def _install_deal_framework_stubs(self):
-        if "app.orchestrator" in sys.modules:
+        if "auto_deal_hunter.app.orchestrator" in sys.modules:
             return
 
         self._install_model_stubs()
 
-        agent_mcp = types.ModuleType("app.mcp_client")
+        agent_mcp = types.ModuleType("auto_deal_hunter.app.mcp_client")
         agent_mcp.run_sync = lambda memory: (memory, None)
-        sys.modules.setdefault("app.mcp_client", agent_mcp)
+        sys.modules.setdefault("auto_deal_hunter.app.mcp_client", agent_mcp)
 
         chromadb = types.ModuleType("chromadb")
         chromadb.PersistentClient = lambda path: None

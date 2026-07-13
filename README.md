@@ -67,13 +67,13 @@ keeps the initial build short enough to validate the app before spending time an
 default 50,000-item store:
 
 ```bash
-MCAULEY_MAX_ITEMS=1000 EVAL_HOLDOUT_SIZE=50 python scripts/build_vector_store.py
+MCAULEY_MAX_ITEMS=1000 EVAL_HOLDOUT_SIZE=50 python -m auto_deal_hunter.scripts.build_vector_store
 ```
 
 For the default larger store, expect a longer network-bound build and more local disk usage:
 
 ```bash
-python scripts/build_vector_store.py
+python -m auto_deal_hunter.scripts.build_vector_store
 ```
 
 By default, the vector store is written to `data/products_vectorstore/`. Set
@@ -84,7 +84,7 @@ can measure generalization without retrieving the exact test item.
 ### 4. Run the app
 
 ```bash
-python -m app.ui
+python -m auto_deal_hunter.app.ui
 ```
 
 This opens a Gradio UI in your browser. The app scans deals, estimates values, saves
@@ -96,10 +96,10 @@ If the browser does not open automatically, visit `http://127.0.0.1:7860`.
 
 Common first-run fixes:
 
-- Missing vector store: run `python scripts/build_vector_store.py`.
+- Missing vector store: run `python -m auto_deal_hunter.scripts.build_vector_store`.
 - Hugging Face download fails: set `HF_TOKEN` in `.env`.
 - OpenAI request fails: confirm `OPENAI_API_KEY` in `.env`.
-- Port `7860` is busy: run `GRADIO_SERVER_PORT=7861 python -m app.ui`.
+- Port `7860` is busy: run `GRADIO_SERVER_PORT=7861 python -m auto_deal_hunter.app.ui`.
 
 ## Docker
 
@@ -116,13 +116,13 @@ cp .env.example .env
 For a faster first run, build a small validation store:
 
 ```bash
-docker compose run --rm -e MCAULEY_MAX_ITEMS=1000 -e EVAL_HOLDOUT_SIZE=50 auto-deal-hunter python scripts/build_vector_store.py
+docker compose run --rm -e MCAULEY_MAX_ITEMS=1000 -e EVAL_HOLDOUT_SIZE=50 auto-deal-hunter python -m auto_deal_hunter.scripts.build_vector_store
 ```
 
 For the default larger store:
 
 ```bash
-docker compose run --rm auto-deal-hunter python scripts/build_vector_store.py
+docker compose run --rm auto-deal-hunter python -m auto_deal_hunter.scripts.build_vector_store
 ```
 
 3. Start the Gradio app:
@@ -204,7 +204,7 @@ deal's summary and price against the raw listing with `ScanJudge` (a fixed `JUDG
 referee), and prices each model's tokens from its own rate sheet:
 
 ```bash
-python -m scripts.compare_scanner_models --models gpt-4o-mini gpt-4.1-nano --output-json docs/eval/scanner_models.json
+python -m auto_deal_hunter.scripts.compare_scanner_models --models gpt-4o-mini gpt-4.1-nano --output-json docs/eval/scanner_models.json
 ```
 
 One local batch (`docs/eval/scanner_models.json`): both models selected the **same five
@@ -302,7 +302,7 @@ excluded from the vector store, so they measure generalization rather than exact
 ### Pricer (end-to-end)
 
 ```bash
-python -m scripts.eval_pricers --size 200
+python -m auto_deal_hunter.scripts.eval_pricers --size 200
 ```
 
 Runs `PricerAgent` (RAG + LLM) against the holdout, scoring each estimate against the item's
@@ -310,7 +310,7 @@ known price. To save aggregate metrics and fail the command when quality drifts 
 (useful in CI):
 
 ```bash
-python -m scripts.eval_pricers --size 200 --output-json data/eval_metrics.json --max-mae 150 --max-abs-bias 50 --max-over-rate 0.65
+python -m auto_deal_hunter.scripts.eval_pricers --size 200 --output-json data/eval_metrics.json --max-mae 150 --max-abs-bias 50 --max-over-rate 0.65
 ```
 
 The command prints aggregate accuracy metrics plus the run's LLM token cost:
@@ -327,7 +327,7 @@ overall error size.
 Example local baseline, using the current `data/eval_holdout.json` and vector store:
 
 ```text
-python -m scripts.eval_pricers --size 200 --output-json docs/eval/baseline_pricer.json
+python -m auto_deal_hunter.scripts.eval_pricers --size 200 --output-json docs/eval/baseline_pricer.json
 MAE: $25.76   RMSE: $66.45   Bias: -$5.71   Over-prediction: 39%   n=200
 LLM usage: 200 calls, 261,470 in + 2,402 out tokens, ~$0.0407
 ```
@@ -338,7 +338,7 @@ End-to-end price error blends two failure modes: a bad retriever (wrong neighbor
 (wrong reasoning over good neighbors). To isolate the retriever — no LLM calls, near-free — run:
 
 ```bash
-python -m scripts.eval_retrieval --size 200 --k 5
+python -m auto_deal_hunter.scripts.eval_retrieval --size 200 --k 5
 ```
 
 The command prints per-k retrieval metrics:
@@ -354,7 +354,7 @@ pricer MAE is a retrieval problem or a reasoning problem before tuning either si
 Example local run, using the current `data/eval_holdout.json` and vector store:
 
 ```text
-python -m scripts.eval_retrieval --size 200 --k 5
+python -m auto_deal_hunter.scripts.eval_retrieval --size 200 --k 5
 category_precision@5: 57%   hit_rate@5: 86%   price_medianAPE@5: 29%   (meanAPE: 48%)   n=200
 ```
 
@@ -368,7 +368,7 @@ percentage points, which once flipped the sign of an A/B comparison on its own.
 To measure the optional re-ranker:
 
 ```bash
-python -m scripts.eval_retrieval --size 200 --k 5 --rerank cross-encoder --output-json docs/eval/rerank_cross_encoder_retrieval.json
+python -m auto_deal_hunter.scripts.eval_retrieval --size 200 --k 5 --rerank cross-encoder --output-json docs/eval/rerank_cross_encoder_retrieval.json
 ```
 
 On the same local holdout, `cross-encoder` moved category precision from 56.8% to 57.5%, hit
@@ -382,7 +382,7 @@ The same conclusion holds one level up and one level down. The `llm` re-ranker s
 category precision 56.3%, hit rate 86.5%, and median APE 25.2% (`docs/eval/rerank_llm_retrieval.json`)
 — again within noise of the baseline, while adding an LLM call per retrieval, so it is the most
 expensive way to not improve the metrics. End-to-end (`RERANK_MODE=cross-encoder
-python -m scripts.eval_pricers --size 200`), the pricer scored MAE $23.91 / RMSE $56.77 /
+python -m auto_deal_hunter.scripts.eval_pricers --size 200`), the pricer scored MAE $23.91 / RMSE $56.77 /
 bias −$12.51 versus the baseline's MAE $25.76 / RMSE $66.45 / bias −$5.71 — MAE within noise,
 with a slightly stronger low tilt. One holdout item also became unpriceable under re-ranking
 (the reshuffled comparables made the model echo the prompt placeholder), which the eval now
@@ -412,7 +412,7 @@ Summarize labeled precision, including buckets by retrieval confidence, list-pri
 overestimate status, and discount size, with:
 
 ```bash
-python -m scripts.feedback_report
+python -m auto_deal_hunter.scripts.feedback_report
 ```
 
 ### Message Judge
@@ -422,7 +422,7 @@ ground truth metric. The judge checks whether generated notifications stay faith
 deal's price, estimate, capped savings, and product facts:
 
 ```bash
-python -m scripts.eval_messages --size 20 --output-json docs/eval/message_judge.json
+python -m auto_deal_hunter.scripts.eval_messages --size 20 --output-json docs/eval/message_judge.json
 ```
 
 This command uses OpenAI for both message generation and judging, so keep `--size` small when
@@ -435,7 +435,7 @@ or doubled, an invented warranty/gift-card fact appended) and reports the judge'
 them, while the clean pass rate bounds its false-positive rate:
 
 ```bash
-python -m scripts.eval_messages --size 20 --negative-control --output-json docs/eval/message_judge.json
+python -m auto_deal_hunter.scripts.eval_messages --size 20 --negative-control --output-json docs/eval/message_judge.json
 ```
 
 Example local run over 8 saved opportunities:

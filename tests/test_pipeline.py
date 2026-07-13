@@ -1,9 +1,9 @@
 import types
 import unittest
 
-import app.pipeline as pipeline_module
-from app.pipeline import DealPipeline
-from domain.deal import Deal, DealSelection
+import auto_deal_hunter.app.pipeline as pipeline_module
+from auto_deal_hunter.app.pipeline import DealPipeline
+from auto_deal_hunter.domain.deal import Deal, DealSelection
 
 
 class FakePricer:

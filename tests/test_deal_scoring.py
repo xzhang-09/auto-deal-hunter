@@ -1,7 +1,7 @@
 import unittest
 
-from core.scoring import best_opportunity, rank_opportunities
-from domain.deal import Deal, Opportunity
+from auto_deal_hunter.core.scoring import best_opportunity, rank_opportunities
+from auto_deal_hunter.domain.deal import Deal, Opportunity
 
 
 def _opp(price, estimate, list_price=None, url="https://x.test/1.html", quantity=1):

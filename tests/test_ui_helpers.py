@@ -8,9 +8,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-agent_mcp = types.ModuleType("app.mcp_client")
+agent_mcp = types.ModuleType("auto_deal_hunter.app.mcp_client")
 agent_mcp.run_sync = lambda memory: (memory, None)
-sys.modules.setdefault("app.mcp_client", agent_mcp)
+sys.modules.setdefault("auto_deal_hunter.app.mcp_client", agent_mcp)
 
 chromadb = types.ModuleType("chromadb")
 chromadb.PersistentClient = lambda path: None
@@ -20,7 +20,7 @@ feedparser = types.ModuleType("feedparser")
 feedparser.parse = lambda url: types.SimpleNamespace(entries=[])
 sys.modules.setdefault("feedparser", feedparser)
 
-from app import ui
+from auto_deal_hunter.app import ui
 
 
 class UiHelperTests(unittest.TestCase):
@@ -57,7 +57,7 @@ class UiHelperTests(unittest.TestCase):
         html = ui.stats_html(ui.dashboard_stats([], vector_store_ready=False))
 
         self.assertIn("setup-warning", html)
-        self.assertIn("build_vector_store.py", html)
+        self.assertIn("build_vector_store", html)
 
     def test_table_rows_include_list_price(self):
         opportunity = self._opportunity(
@@ -80,7 +80,7 @@ class UiHelperTests(unittest.TestCase):
     def test_multipack_rows_show_pack_level_prices(self):
         # Internally a 4-pack is stored per-unit ($4.75/$6.00); the table must show the pack
         # prices the user actually pays ($19/$24), not the per-unit values.
-        from core.identity_policy import per_unit_note
+        from auto_deal_hunter.core.identity_policy import per_unit_note
 
         opp = ui.Opportunity(
             deal=ui.Deal(
@@ -118,7 +118,7 @@ class UiHelperTests(unittest.TestCase):
         self.assertEqual(row[ui.ALERT_COL], "🔔")
 
     def test_table_renders_saved_feedback_labels(self):
-        from core.source_ids import deal_id
+        from auto_deal_hunter.core.source_ids import deal_id
 
         opportunity = self._opportunity(price=50.0, estimate=100.0)
         labels = {deal_id(opportunity.deal.url): "good_deal"}
@@ -276,7 +276,7 @@ class UiHelperTests(unittest.TestCase):
         self.assertNotIn("margin: -", ui.APP_CSS)
 
     def test_reference_map_caption_is_declared_after_plot(self):
-        source = (ROOT / "app" / "ui.py").read_text()
+        source = (ROOT / "auto_deal_hunter" / "app" / "ui.py").read_text()
 
         self.assertLess(
             source.index("plot = gr.Plot"),

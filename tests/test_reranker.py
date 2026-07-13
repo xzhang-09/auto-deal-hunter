@@ -19,7 +19,7 @@ class FakeCrossEncoder:
 sentence_transformers.CrossEncoder = FakeCrossEncoder
 sentence_transformers.SentenceTransformer = lambda *args, **kwargs: None
 
-from core.reranker import CrossEncoderReranker, LLMReranker, NoopReranker
+from auto_deal_hunter.core.reranker import CrossEncoderReranker, LLMReranker, NoopReranker
 
 
 class RerankerTests(unittest.TestCase):

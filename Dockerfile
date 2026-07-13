@@ -21,4 +21,4 @@ RUN pip install --no-cache-dir -e .
 
 EXPOSE 7860
 
-CMD ["python", "-m", "app.ui"]
+CMD ["python", "-m", "auto_deal_hunter.app.ui"]

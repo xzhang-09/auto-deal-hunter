@@ -6,13 +6,13 @@ corpus size and the same retriever-only metrics used elsewhere.
 Run a quick smoke comparison:
 
 ```bash
-python -m scripts.compare_embeddings --max-items 1000 --holdout-size 100 --size 50
+python -m auto_deal_hunter.scripts.compare_embeddings --max-items 1000 --holdout-size 100 --size 50
 ```
 
 Run the fuller comparison:
 
 ```bash
-python -m scripts.compare_embeddings --max-items 10000 --size 200
+python -m auto_deal_hunter.scripts.compare_embeddings --max-items 10000 --size 200
 ```
 
 The script builds one Chroma store per model under `data/embedding_compare/` and writes

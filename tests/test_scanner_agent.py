@@ -8,8 +8,8 @@ feedparser = types.ModuleType("feedparser")
 feedparser.parse = lambda url: types.SimpleNamespace(entries=[])
 sys.modules.setdefault("feedparser", feedparser)
 
-from agents.scanner_agent import ScannerAgent
-from domain.deal import Deal, DealSelection
+from auto_deal_hunter.agents.scanner_agent import ScannerAgent
+from auto_deal_hunter.domain.deal import Deal, DealSelection
 
 
 class _FakeScraped:

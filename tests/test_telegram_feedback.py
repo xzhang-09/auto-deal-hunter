@@ -4,10 +4,10 @@ import json
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from core.opportunity_store import OpportunityStore
-from core.source_ids import deal_id
-from domain.deal import Deal, Opportunity
-from infra.telegram_feedback import TelegramFeedbackPoller
+from auto_deal_hunter.core.opportunity_store import OpportunityStore
+from auto_deal_hunter.core.source_ids import deal_id
+from auto_deal_hunter.domain.deal import Deal, Opportunity
+from auto_deal_hunter.infra.telegram_feedback import TelegramFeedbackPoller
 
 
 class TelegramFeedbackPollerTests(unittest.TestCase):
@@ -38,7 +38,7 @@ class TelegramFeedbackPollerTests(unittest.TestCase):
             },
         }
 
-    @patch("infra.telegram_feedback.requests.post")
+    @patch("auto_deal_hunter.infra.telegram_feedback.requests.post")
     def test_good_feedback_is_saved_and_message_is_updated(self, post):
         post.return_value = Mock(raise_for_status=Mock())
 
@@ -53,7 +53,7 @@ class TelegramFeedbackPollerTests(unittest.TestCase):
         markup = json.loads(post.call_args_list[1].kwargs["data"]["reply_markup"])
         self.assertEqual(markup["inline_keyboard"][0][0]["text"], "✅ Good deal")
 
-    @patch("infra.telegram_feedback.requests.post")
+    @patch("auto_deal_hunter.infra.telegram_feedback.requests.post")
     def test_bad_feedback_can_replace_good_feedback(self, post):
         post.return_value = Mock(raise_for_status=Mock())
         self.poller.process_update(self._update())
@@ -64,7 +64,7 @@ class TelegramFeedbackPollerTests(unittest.TestCase):
             self.store.feedback_map()[deal_id(self.opportunity.deal.url)], "bad_deal"
         )
 
-    @patch("infra.telegram_feedback.requests.post")
+    @patch("auto_deal_hunter.infra.telegram_feedback.requests.post")
     def test_unauthorized_chat_cannot_write_feedback(self, post):
         post.return_value = Mock(raise_for_status=Mock())
 
@@ -74,7 +74,7 @@ class TelegramFeedbackPollerTests(unittest.TestCase):
         self.assertEqual(post.call_count, 1)
         self.assertTrue(post.call_args.kwargs["data"]["show_alert"])
 
-    @patch("infra.telegram_feedback.requests.post")
+    @patch("auto_deal_hunter.infra.telegram_feedback.requests.post")
     def test_unknown_deal_is_not_recorded(self, post):
         post.return_value = Mock(raise_for_status=Mock())
 

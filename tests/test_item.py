@@ -1,6 +1,6 @@
 import unittest
 
-from domain.item import Item
+from auto_deal_hunter.domain.item import Item
 
 
 def _row(price, title="3-Prong AC Power Cord", category="All Electronics", description=None):

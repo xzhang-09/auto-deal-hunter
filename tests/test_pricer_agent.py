@@ -7,8 +7,8 @@ sentence_transformers = types.ModuleType("sentence_transformers")
 sentence_transformers.SentenceTransformer = lambda *args, **kwargs: None
 sys.modules.setdefault("sentence_transformers", sentence_transformers)
 
-from agents.pricer_agent import PLACEHOLDER_PRICE, PricerAgent
-from infra.config import VECTOR_SPACE
+from auto_deal_hunter.agents.pricer_agent import PLACEHOLDER_PRICE, PricerAgent
+from auto_deal_hunter.infra.config import VECTOR_SPACE
 
 
 def _agent_returning(reply: str) -> PricerAgent:
