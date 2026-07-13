@@ -4,28 +4,44 @@ Auto Deal Hunter watches retail deal feeds, estimates whether each product is ac
 
 Under the hood, it uses **RAG** over an independent Amazon reference set for fair-value estimates, applies deterministic scoring and list-price guardrails to reduce false bargains, and exposes scan/estimate/notify capabilities as MCP tools for reuse by MCP clients.
 
+## Contents
+
+- [Demo](#demo)
+- [Features](#features)
+- [Requirements](#requirements)
+- [Quick Start](#quick-start)
+- [Docker](#docker)
+- [Configuration](#configuration) — [environment variables](#common-environment-variables), [notifications](#notifications), [model tiering](#model-tiering)
+- [How It Works](#how-it-works) — [deterministic selection](#deterministic-selection), [estimate guardrail](#estimate-guardrail)
+- [Evaluation](#evaluation) — [pricer](#pricer-end-to-end), [retriever](#retriever-no-llm), [feedback](#feedback), [message judge](#message-judge), [reproducibility](#reproducibility)
+- [Development](#development)
+- [Project Structure](#project-structure)
+- [Limitations](#limitations)
+- [Roadmap](#roadmap)
+- [License](#license)
+
 ## Demo
 
 The dashboard shows saved opportunities, live scan logs, guardrail stats, and a 3D projection of the embedded product reference library. Optional Telegram notifications, with Pushover as a fallback, send the selected deal to your phone.
 
-Gradio dashboard:
+Gradio dashboard (click to view full size):
 
-![Gradio demo](docs/assets/gradio-demo.png)
+<a href="docs/assets/gradio-demo.png"><img src="docs/assets/gradio-demo.png" width="900" alt="Gradio demo"></a>
 
 Telegram notification:
 
-![Telegram deal notification](docs/assets/telegram-notification-demo.jpg)
+<img src="docs/assets/telegram-notification-demo.jpg" width="320" alt="Telegram deal notification">
 
 ## Features
 
 - **Scan** — Fetches new retail deals from DealNews RSS feeds for Electronics, Computers, and Smart Home.
-- **Estimate** — Retrieves similar Amazon catalog items from ChromaDB and asks an LLM (default `gpt-4o-mini`, set via `LLM_MODEL`) for a fair-value estimate, shrunk toward the comparables' median price when the retrieval match is weak.
-- **Optional re-rank** — Can re-rank a wider retrieval set (`RERANK_MODE=cross-encoder` or `llm`) before pricing.
+- **Estimate** — Retrieves similar Amazon catalog items from ChromaDB and asks an LLM for a fair-value estimate, shrunk toward the comparables' median price when the retrieval match is weak.
+- **Optional re-rank** — Can re-rank a wider retrieval set (cross-encoder or LLM) before pricing.
 - **Cost-aware** — Logs LLM token usage and an estimated dollar cost per run.
 - **Guardrail** — Caps reported savings at the seller's list price when a list price is available, reducing false bargains from high model estimates.
 - **Identity-aware** — Normalizes multi-packs to per-unit pricing and skips bundles/subscriptions that do not compare cleanly.
 - **Notify** — Sends optional Telegram notifications, or Pushover as a fallback, only for compelling deals with sufficient RAG confidence.
-- **Gradio UI** — Displays the opportunity table, guardrail summary, logs, and a 3D t-SNE map of the vector store. Each deal row carries in-row 👍/👎 feedback cells (the saved label appears as ✅) and a 🔔 cell to push that deal to your phone.
+- **Gradio UI** — Displays the opportunity table, guardrail summary, logs, and a 3D t-SNE map of the vector store, with in-row feedback and push-to-phone controls (see [Feedback](#feedback)).
 
 ## Requirements
 
@@ -111,17 +127,16 @@ Docker is the easiest way to run the app with a clean Python environment.
 cp .env.example .env
 ```
 
-2. Build the vector store once. The compose service mounts `./data` into the container, so the generated vector store and SQLite runtime data persist across container rebuilds.
-
-For a faster first run, build a small validation store:
+2. Build the vector store once, with the same small-store/large-store trade-off described in
+[Quick Start step 3](#3-build-the-vector-store). The compose service mounts `./data` into the
+container, so the generated vector store and SQLite runtime data persist across container
+rebuilds.
 
 ```bash
+# Small validation store (faster first run):
 docker compose run --rm -e MCAULEY_MAX_ITEMS=1000 -e EVAL_HOLDOUT_SIZE=50 auto-deal-hunter python -m auto_deal_hunter.scripts.build_vector_store
-```
 
-For the default larger store:
-
-```bash
+# Default larger store:
 docker compose run --rm auto-deal-hunter python -m auto_deal_hunter.scripts.build_vector_store
 ```
 
@@ -207,12 +222,9 @@ referee), and prices each model's tokens from its own rate sheet:
 python -m auto_deal_hunter.scripts.compare_scanner_models --models gpt-4o-mini gpt-4.1-nano --output-json docs/eval/scanner_models.json
 ```
 
-One local batch (`docs/eval/scanner_models.json`): both models selected the **same five
-deals**; `gpt-4.1-nano` scored 5/5 faithful at ~35% lower scan cost, while `gpt-4o-mini` had
-one summary flagged for adding specs not present in the listing (injected from prior product
-knowledge — exactly the failure the judge exists to catch). A single RSS batch with five
-selections per model is directional, not conclusive: rerun on a few different batches before
-setting `SCANNER_MODEL=gpt-4.1-nano`, but the mechanism and the measurement are in place.
+In one local batch, `gpt-4.1-nano` matched `gpt-4o-mini`'s deal selection at ~35% lower scan
+cost — directional, not conclusive; see
+[docs/eval/README.md](docs/eval/README.md#scanner-model-comparison) for the full run and caveats.
 
 The scanner, pricer, notification writer, and judge use the Responses API by default. Set
 `OPENAI_API_STYLE=chat` when pointing `OPENAI_BASE_URL` at an OpenAI-compatible endpoint that
@@ -221,40 +233,38 @@ Completions because that path is kept specifically as the compatibility/demo rou
 
 ## How It Works
 
-```text
-   DealNews RSS ──▶ ScannerAgent    PricerAgent            MessagingAgent ──▶ Telegram
-                    (filter + LLM   (RAG: ChromaDB +        (LLM-crafted
-                     selection)      LLM estimate)           message)
-                          │               │                     ▲
-                          ▼               ▼                     │
-   scan pipeline ──▶ candidates ──▶ estimates ──▶ deterministic best deal (max total capped savings)
-                                                          │
-                                                          ▼
-                                              SQLite store + Gradio UI
+```mermaid
+flowchart LR
+    RSS[DealNews RSS] --> Scanner["ScannerAgent<br/>filter + LLM selection"]
+    Scanner -->|candidates| Pricer["PricerAgent<br/>RAG: ChromaDB + LLM estimate"]
+    Pricer -->|estimates| Select["Deterministic selection<br/>max list-price-capped savings"]
+    Select --> Store["SQLite store + Gradio UI"]
+    Select --> Messaging["MessagingAgent<br/>LLM-crafted message"]
+    Messaging --> TG[Telegram]
 ```
 
 1. `ScannerAgent` fetches DealNews RSS entries and extracts product details, deal price, and list price when available.
 2. Used, refurbished, renewed, open-box, and pre-owned items are filtered out before selection. Bundles and subscriptions are skipped, and multi-packs are rebased to a per-unit price so they are valued against single-unit comparables.
 3. `PricerAgent` embeds deal descriptions and retrieves similar Amazon products from ChromaDB. If `RERANK_MODE` is enabled, it retrieves a wider candidate set and re-ranks it before keeping the top comparables.
 4. An LLM (default `gpt-4o-mini`) estimates market value from the retrieved product context and returns a structured price. The raw estimate is then shrunk toward the median price of the retrieved comparables, weighted by retrieval confidence, so a weak RAG match cannot win the scan on a wild guess (see [Estimate guardrail](#estimate-guardrail)).
-5. The pipeline *gathers* candidates and their estimates, but the single best deal is chosen **deterministically**, not by model judgment ([`core/scoring.py`](core/scoring.py); see [Deterministic selection](#deterministic-selection)).
+5. The pipeline *gathers* candidates and their estimates, but the single best deal is chosen **deterministically**, not by model judgment ([`core/scoring.py`](auto_deal_hunter/core/scoring.py); see [Deterministic selection](#deterministic-selection)).
 6. A push is sent for the best deal — unless its estimate rests on a weak RAG match (below `RAG_MIN_CONFIDENCE`), in which case the deal is still saved but not notified.
 7. Gradio displays opportunities, live logs, guardrail summary, and a 3D t-SNE view of the vector store.
 
-Each run also logs LLM token usage and an estimated dollar cost ([`infra/usage.py`](infra/usage.py)), and scraped DealNews pages are cached on disk ([`infra/http_cache.py`](infra/http_cache.py)) so repeated scans are fast and gentle on the source.
+Each run also logs LLM token usage and an estimated dollar cost ([`infra/usage.py`](auto_deal_hunter/infra/usage.py)), and scraped DealNews pages are cached on disk ([`infra/http_cache.py`](auto_deal_hunter/infra/http_cache.py)) so repeated scans are fast and gentle on the source.
 
 ### Deterministic selection
 
 The deal-hunting flow is mostly deterministic (scan → estimate → score candidates), so the LLM
 is **not** trusted to choose the winner. By default the pipeline runs **in-process**
-([`app/pipeline.py`](app/pipeline.py)): it calls the scanner, estimates each candidate, and
+([`app/pipeline.py`](auto_deal_hunter/app/pipeline.py)): it calls the scanner, estimates each candidate, and
 selects the best by a plain `max` over the list-price-capped total savings (per-unit discount ×
-pack size, [`core/scoring.py`](core/scoring.py)) — keeping the LLM for the parts it is good at
+pack size, [`core/scoring.py`](auto_deal_hunter/core/scoring.py)) — keeping the LLM for the parts it is good at
 (summarizing listings and estimating value from context).
 
-The same three capabilities are also exposed as MCP tools ([`app/mcp_server.py`](app/mcp_server.py))
+The same three capabilities are also exposed as MCP tools ([`app/mcp_server.py`](auto_deal_hunter/app/mcp_server.py))
 so any MCP client can reuse them, and an LLM tool-calling loop that drives those tools
-([`app/mcp_client.py`](app/mcp_client.py)) is kept as a demonstration of MCP orchestration —
+([`app/mcp_client.py`](auto_deal_hunter/app/mcp_client.py)) is kept as a demonstration of MCP orchestration —
 opt in with `SCAN_MODE=agent`. The direct pipeline is the default because the scan result is
 deterministic after candidates and estimates are gathered.
 
@@ -296,8 +306,8 @@ Two scripts score the system on the held-out McAuley sample in `data/eval_holdou
 excluded from the vector store, so they measure generalization rather than exact-match lookup).
 
 > **Figures depend on the model, the vector store size, and `--size`,** so they drift over time.
-> The sample outputs below show the metric format only — run the scripts yourself for current
-> numbers.
+> The sample outputs below show the metric format only; dated local results live in
+> [docs/eval/README.md](docs/eval/README.md) — run the scripts yourself for current numbers.
 
 ### Pricer (end-to-end)
 
@@ -324,13 +334,8 @@ Watch **Bias** and **Over-prediction** first. They show whether the pricer has a
 which is the failure mode most likely to create false bargains. **MAE** and **RMSE** measure
 overall error size.
 
-Example local baseline, using the current `data/eval_holdout.json` and vector store:
-
-```text
-python -m auto_deal_hunter.scripts.eval_pricers --size 200 --output-json docs/eval/baseline_pricer.json
-MAE: $25.76   RMSE: $66.45   Bias: -$5.71   Over-prediction: 39%   n=200
-LLM usage: 200 calls, 261,470 in + 2,402 out tokens, ~$0.0407
-```
+A dated local baseline is recorded in
+[docs/eval/README.md](docs/eval/README.md#pricer-baseline).
 
 ### Retriever (no LLM)
 
@@ -351,19 +356,10 @@ It scores whether neighbors are in the right category, whether at least one same
 is found, and how close neighbor prices are to the held-out item. Use this to tell whether a high
 pricer MAE is a retrieval problem or a reasoning problem before tuning either side.
 
-Example local run, using the current `data/eval_holdout.json` and vector store:
-
-```text
-python -m auto_deal_hunter.scripts.eval_retrieval --size 200 --k 5
-category_precision@5: 57%   hit_rate@5: 86%   price_medianAPE@5: 29%   (meanAPE: 48%)   n=200
-```
-
-The high hit rate means most held-out items retrieve at least one same-category neighbor, while
-the lower category precision and high mean absolute percentage error show why the app treats this
-as a screening/ranking signal rather than a pricing oracle. Items whose true per-unit price is
-below $1 are excluded from the APE metrics (`n_ape` in the JSON output): with a near-zero
-denominator, a few dollars of neighbor movement swings a single query's APE by thousands of
-percentage points, which once flipped the sign of an A/B comparison on its own.
+Items whose true per-unit price is below $1 are excluded from the APE metrics (`n_ape` in the
+JSON output): with a near-zero denominator, a single cheap item can dominate the aggregate.
+A dated local baseline, and why the app treats retrieval as a screening signal rather than a
+pricing oracle, are in [docs/eval/README.md](docs/eval/README.md#retriever-baseline).
 
 To measure the optional re-ranker:
 
@@ -371,31 +367,11 @@ To measure the optional re-ranker:
 python -m auto_deal_hunter.scripts.eval_retrieval --size 200 --k 5 --rerank cross-encoder --output-json docs/eval/rerank_cross_encoder_retrieval.json
 ```
 
-On the same local holdout, `cross-encoder` moved category precision from 56.8% to 57.5%, hit
-rate from 85.5% to 88.0%, and median APE from 28.6% to 28.4%, with mean APE flat (48.3% vs
-48.4%). All of these differences are within sampling noise at n=200 (the standard error on a
-~57% proportion is about ±3.5 points), so the honest reading is "no measurable gain," and the
-re-ranker stays opt-in rather than becoming the default: it adds a cross-encoder inference pass
-per deal without a demonstrated retrieval improvement.
-
-The same conclusion holds one level up and one level down. The `llm` re-ranker scored
-category precision 56.3%, hit rate 86.5%, and median APE 25.2% (`docs/eval/rerank_llm_retrieval.json`)
-— again within noise of the baseline, while adding an LLM call per retrieval, so it is the most
-expensive way to not improve the metrics. End-to-end (`RERANK_MODE=cross-encoder
-python -m auto_deal_hunter.scripts.eval_pricers --size 200`), the pricer scored MAE $23.91 / RMSE $56.77 /
-bias −$12.51 versus the baseline's MAE $25.76 / RMSE $66.45 / bias −$5.71 — MAE within noise,
-with a slightly stronger low tilt. One holdout item also became unpriceable under re-ranking
-(the reshuffled comparables made the model echo the prompt placeholder), which the eval now
-reports as `n_failed` instead of crashing — worth watching, since a config change that shifts
-retrieval can push individual items over the pricer's fail-loudly edge.
-
-Per-query error analysis of an earlier run also showed a real failure mode worth knowing about:
-`ms-marco` cross-encoders score topical relevance, not price comparability, so they can promote
-a lexically better match from the wrong price tier — e.g. ranking a $39.99 square hood first for
-a $9.99 lens-hood query because both say "77mm", or promoting an $89.99 triple-pack fan for a
-$14 single-fan query on a brand match. Across the holdout these promotions roughly balance out
-(68 queries got worse by >1pt, 70 got better), but they are the thing to fix — likely with a
-price-aware re-ranking objective — before the re-ranker can earn the default slot.
+On the local holdout, neither the `cross-encoder` nor the `llm` re-ranker improved retrieval
+beyond sampling noise, so both stay opt-in rather than becoming the default. The full numbers,
+the end-to-end pricer comparison, and a per-query analysis of why topical re-rankers promote
+matches from the wrong price tier are in
+[docs/eval/README.md](docs/eval/README.md#re-ranker-comparison).
 
 ### Feedback
 
@@ -438,17 +414,8 @@ them, while the clean pass rate bounds its false-positive rate:
 python -m auto_deal_hunter.scripts.eval_messages --size 20 --negative-control --output-json docs/eval/message_judge.json
 ```
 
-Example local run over 8 saved opportunities:
-
-```text
-faithfulness_rate=100% mean_score=5.00 n=8
-negative control: judge_recall=100% on 24 corrupted messages
-LLM usage: 40 calls, 12,954 in + 2,086 out tokens, ~$0.0032
-```
-
-All 24 corrupted messages were caught (scores dropped to 1–2 with the specific misstatement
-named in `issues`), and all 8 clean messages passed — so the 100% faithfulness rate on real
-messages reflects a judge that demonstrably catches violations, not one that rubber-stamps.
+In a dated local run, the judge caught all corrupted messages while passing all clean ones —
+see [docs/eval/README.md](docs/eval/README.md#message-judge) for the numbers.
 
 ### Reproducibility
 
@@ -492,50 +459,58 @@ Anaconda/base environment — unrelated packages and local file URLs leak into t
 
 ```text
 auto-deal-hunter/
-├── app/                   # Application entrypoint + orchestration
-│   ├── ui.py              # Gradio UI (entrypoint)
-│   ├── orchestrator.py    # Outer run loop: trigger scan, persist, prune, report
-│   ├── pipeline.py        # Default in-process scan → estimate → select → notify
-│   ├── mcp_client.py      # Agentic loop driving the MCP tools (SCAN_MODE=agent)
-│   └── mcp_server.py      # MCP server exposing scan/estimate/notify tools
-├── agents/                # Agent implementations
-│   ├── agent.py
-│   ├── scanner_agent.py
-│   ├── pricer_agent.py    # RAG + LLM fair-value estimator
-│   └── messaging_agent.py
-├── domain/                # Pure domain models (no I/O)
-│   ├── deal.py            # Deal, DealSelection, Opportunity
-│   ├── identity.py        # Product identity kinds and metadata
-│   └── item.py            # McAuley catalog item
-├── ingest/                # DealNews scraping + price extraction
-│   ├── identity.py        # Deterministic product-identity extraction
-│   ├── scraper.py         # ScrapedDeal, RSS fetch, new-retail filtering
-│   └── list_price.py      # List/deal-price regex + widget parsing
-├── core/                  # Business logic
-│   ├── identity_policy.py # Priceability and per-unit rebasing rules
-│   ├── reranker.py        # Optional cross-encoder / LLM second-stage retrieval re-rankers
-│   ├── scoring.py         # Deterministic best-deal selection
-│   ├── source_ids.py      # Stable per-deal id (deal_id) + source registry
-│   └── opportunity_store.py  # SQLite persistence
-├── infra/                 # Cross-cutting infrastructure
-│   ├── config.py          # Single source of truth for model/embedding settings
-│   ├── usage.py           # LLM token + cost accounting
-│   ├── http_cache.py      # On-disk read-through cache for scraped pages
-│   ├── log_utils.py
-│   └── paths.py           # Shared runtime/data paths
-├── evaluation/            # Importable, tested eval metrics
-│   ├── judge.py           # LLM-as-a-judge for notification faithfulness
-│   ├── pricer.py          # MAE / bias / over-prediction
-│   └── retrieval.py       # category_precision@k / hit_rate@k / price_medianAPE@k
-├── scripts/               # Thin CLI wrappers
-│   ├── audit_identity.py   # Identity-rule audit over live scraped deals
-│   ├── build_vector_store.py
-│   ├── compare_embeddings.py # Build/evaluate multiple embedding stores
-│   ├── eval_messages.py   # LLM-as-a-judge notification eval
-│   ├── eval_pricers.py    # End-to-end price accuracy (RAG + LLM)
-│   ├── eval_retrieval.py  # Retriever-only quality (no LLM)
-│   └── feedback_report.py # Manual good/bad feedback summary
-├── data/                  # Runtime state and local vector store
+├── auto_deal_hunter/          # The installable package
+│   ├── app/                   # Application entrypoint + orchestration
+│   │   ├── ui.py              # Gradio UI (entrypoint)
+│   │   ├── orchestrator.py    # Outer run loop: trigger scan, persist, prune, report
+│   │   ├── pipeline.py        # Default in-process scan → estimate → select → notify
+│   │   ├── mcp_client.py      # Agentic loop driving the MCP tools (SCAN_MODE=agent)
+│   │   └── mcp_server.py      # MCP server exposing scan/estimate/notify tools
+│   ├── agents/                # Agent implementations
+│   │   ├── agent.py
+│   │   ├── scanner_agent.py
+│   │   ├── pricer_agent.py    # RAG + LLM fair-value estimator
+│   │   └── messaging_agent.py
+│   ├── domain/                # Pure domain models (no I/O)
+│   │   ├── deal.py            # Deal, DealSelection, Opportunity
+│   │   ├── identity.py        # Product identity kinds and metadata
+│   │   └── item.py            # McAuley catalog item
+│   ├── ingest/                # DealNews scraping + price extraction
+│   │   ├── identity.py        # Deterministic product-identity extraction
+│   │   ├── scraper.py         # ScrapedDeal, RSS fetch, new-retail filtering
+│   │   └── list_price.py      # List/deal-price regex + widget parsing
+│   ├── core/                  # Business logic
+│   │   ├── identity_policy.py # Priceability and per-unit rebasing rules
+│   │   ├── reranker.py        # Optional cross-encoder / LLM second-stage re-rankers
+│   │   ├── scoring.py         # Deterministic best-deal selection
+│   │   ├── source_ids.py      # Stable per-deal id (deal_id) + source registry
+│   │   └── opportunity_store.py  # SQLite persistence
+│   ├── infra/                 # Cross-cutting infrastructure
+│   │   ├── config.py          # Single source of truth for model/embedding settings
+│   │   ├── openai_compat.py   # Responses/Chat Completions API-style compatibility
+│   │   ├── telegram_feedback.py  # Telegram Good/Bad button callback listener
+│   │   ├── usage.py           # LLM token + cost accounting
+│   │   ├── http_cache.py      # On-disk read-through cache for scraped pages
+│   │   ├── log_utils.py
+│   │   └── paths.py           # Shared runtime/data paths
+│   ├── evaluation/            # Importable, tested eval metrics
+│   │   ├── judge.py           # LLM-as-a-judge for notification faithfulness
+│   │   ├── pricer.py          # MAE / bias / over-prediction
+│   │   └── retrieval.py       # category_precision@k / hit_rate@k / price_medianAPE@k
+│   └── scripts/               # Thin CLI wrappers
+│       ├── audit_identity.py  # Identity-rule audit over live scraped deals
+│       ├── build_vector_store.py
+│       ├── compare_embeddings.py     # Build/evaluate multiple embedding stores
+│       ├── compare_scanner_models.py # Scanner model tiering comparison (ScanJudge)
+│       ├── eval_messages.py   # LLM-as-a-judge notification eval
+│       ├── eval_pricers.py    # End-to-end price accuracy (RAG + LLM)
+│       ├── eval_retrieval.py  # Retriever-only quality (no LLM)
+│       └── feedback_report.py # Manual good/bad feedback summary
+├── tests/                     # Offline test suite (network + LLM calls stubbed)
+├── docs/                      # Screenshots, eval snapshots (docs/eval/), write-ups
+├── data/                      # Runtime state and local vector store
+├── Dockerfile
+├── docker-compose.yml
 └── pyproject.toml
 ```
 
