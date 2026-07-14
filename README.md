@@ -175,7 +175,12 @@ evaluation settings.
 | `TELEGRAM_POLL_TIMEOUT_SECONDS` | Telegram long-poll timeout used by the feedback listener | `25` |
 | `PUSHOVER_USER` | Pushover user key, used when Telegram is not configured | — |
 | `PUSHOVER_TOKEN` | Pushover app token, used when Telegram is not configured | — |
-| **Common settings** | | |
+
+<details>
+<summary>Common settings (model overrides, retrieval, TTL — all have sensible defaults)</summary>
+
+| Variable | Description | Default |
+|----------|-------------|---------|
 | `LLM_MODEL` | Default chat model, served by the configured OpenAI-compatible endpoint | `gpt-4o-mini` |
 | `SCANNER_MODEL` | Optional scanner override for feed selection/summarization | inherits `LLM_MODEL` |
 | `PRICER_MODEL` | Optional pricer override for RAG-based fair-value estimation | inherits `LLM_MODEL` |
@@ -189,6 +194,8 @@ evaluation settings.
 | `DEALS_TTL_HOURS` | Prune opportunities not re-confirmed within this many hours; `0` disables expiry | `72` |
 | `MCAULEY_MAX_ITEMS` | Cap on items embedded into the vector store | `50000` |
 | `EVAL_HOLDOUT_SIZE` | Items held out for `eval_pricers.py` | `500` |
+
+</details>
 
 ### Notifications
 
@@ -438,23 +445,6 @@ ruff check .
 Tests run offline — network, OpenAI, and Sentence-Transformers calls are stubbed — so no API key
 or vector store is required.
 
-### Reproducible installs
-
-`pyproject.toml` pins only version *ranges* (with upper bounds capping the next major of the
-fast-moving libraries), which is right for development. For a byte-for-byte reproducible deploy,
-generate a lockfile **in the target environment** (matching OS and Python version — a macOS lock
-won't match a Linux container):
-
-```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -e .
-pip freeze --exclude-editable > requirements.lock
-```
-
-Commit `requirements.lock` and install from it in the container (`pip install -r requirements.lock`).
-Regenerate it whenever `pyproject.toml` dependencies change. Do **not** run `pip freeze` from a broad
-Anaconda/base environment — unrelated packages and local file URLs leak into the snapshot.
-
 ## Project Structure
 
 ```text
@@ -522,13 +512,12 @@ auto-deal-hunter/
   with weak comparables.
 - **Reference-set category coverage bounds estimate quality.** The vector store is built from one
   McAuley category (Electronics by default), while deal feeds also serve products that category
-  barely covers (e.g. plain alkaline batteries retrieve battery *chargers* as nearest neighbors).
-  Retrieval confidence measures embedding proximity, not category identity, so it cannot detect
-  this by itself. When the estimate lands above `ESTIMATE_MISMATCH_RATIO` × list price, the deal
-  is treated as a retrieval mismatch: its push is withheld and the dashboard shows `⚠️ n/a`
-  instead of the estimate (savings stay list-price-capped and real). **Residual exposure:** a
-  mismatched estimate on a deal with *no* detected list price cannot be caught by this guard —
-  there is nothing to cap against or compare with — and competes in ranking at face value.
+  barely covers (e.g. plain alkaline batteries retrieve battery *chargers* as nearest neighbors),
+  and retrieval confidence measures embedding proximity, not category identity, so it cannot
+  detect the mismatch by itself. The [estimate guardrail](#estimate-guardrail) catches most of
+  these via the list-price ratio check, but a mismatched estimate on a deal with **no detected
+  list price** cannot be caught — there is nothing to compare against — and competes in ranking
+  at face value.
 - **Source-dependent scans.** Deal quality depends on RSS feed availability and DealNews page
   structure.
 - **Runtime dependencies can fail.** Scans depend on DealNews pages, the local vector store, and an
@@ -540,9 +529,11 @@ auto-deal-hunter/
 
 ## Roadmap
 
-- **Estimate confidence metadata.** Track comparable count, similarity distance, price spread,
-  vector-store build timestamp, and identity/quantity/variant match strength. Low-confidence deals
-  could be displayed but skipped for push notifications.
+- **Richer estimate-confidence metadata.** The pricer currently records a single
+  retrieval-confidence scalar (nearest-comparable distance), which gates push notifications
+  (`RAG_MIN_CONFIDENCE`) and estimate shrinkage. Extend it to track comparable count, price
+  spread, raw similarity distances, vector-store build timestamp, and identity/quantity/variant
+  match strength.
 - **Optional live-price layer.** Add exact live-match pricing when high-confidence same-spec
   listings are available, and optionally refresh RAG comparables with current prices. Compute a
   median or weighted median from valid new, in-stock listings while excluding DealNews and

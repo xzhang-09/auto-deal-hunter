@@ -11,8 +11,9 @@ requires-python = ">=3.10"
 # gradio) so a future ``pip install`` can't silently pull a breaking major and leave the app
 # unbuildable. The cap only blocks the *next* major, never the currently-installed one. Mature,
 # stable libraries (requests, bs4, feedparser, tqdm, pyarrow, scikit-learn) are left uncapped.
-# For a byte-for-byte reproducible deploy, generate a lockfile in the target environment --
-# see "Reproducible installs" in the README.
+# For a byte-for-byte reproducible deploy, generate a lockfile in the target environment
+# (matching OS and Python version) with `pip freeze --exclude-editable > requirements.lock`,
+# then install from it (`pip install -r requirements.lock`) and wire that into the Dockerfile.
 dependencies = [
     "beautifulsoup4>=4.14.2",
     "chromadb>=1.1.0,<2",
